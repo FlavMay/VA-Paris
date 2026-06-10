@@ -123,4 +123,87 @@ export default function Comparables() {
           {' '}et importez directement le fichier Excel.<br />
           <strong>Option 2 — DVF CSV</strong> : téléchargez le fichier CSV département{' '}
           <strong>75 (Paris)</strong> sur{' '}
-          <a href="https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres/" target="
+          <a href="https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres/" target="_blank" rel="noopener" style={{ color: '#1e40af', textDecoration: 'underline' }}>
+            data.gouv.fr → Demandes de Valeurs Foncières
+          </a>.
+        </div>
+
+        {error && (
+          <div className="alert" style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fca5a5', marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+        {success && (
+          <div className="alert alert-success" style={{ marginBottom: 12 }}>{success}</div>
+        )}
+
+        {importing && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280', marginBottom: 5 }}>
+              <span>Lignes lues : {progress.read.toLocaleString('fr-FR')}</span>
+              <span>Valides : {progress.valid.toLocaleString('fr-FR')}</span>
+              <span>Insérés : {progress.inserted.toLocaleString('fr-FR')} / {progress.total.toLocaleString('fr-FR')}</span>
+            </div>
+            <div style={{ background: '#e5e7eb', borderRadius: 4, height: 8, overflow: 'hidden' }}>
+              <div style={{ background: '#1e40af', height: '100%', width: pct + '%', transition: 'width .3s', borderRadius: 4 }} />
+            </div>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+              {pct}% — Ne fermez pas cette page pendant l'import
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn-teal" onClick={() => fileRef.current?.click()} disabled={importing}>
+            {importing
+              ? <><span className="spinner" style={{ marginRight: 8 }} />Import en cours…</>
+              : '📂 Sélectionner un fichier CSV ou XLSX'}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.txt,.xlsx,.xls"
+            style={{ display: 'none' }}
+            onChange={e => { importFile(e.target.files[0]); e.target.value = '' }}
+          />
+          {stats?.total > 0 && (
+            <button className="btn-danger" onClick={clearAll} disabled={importing}>
+              🗑 Effacer toute la base
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="card" style={{ padding: 24 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>📊 Base de données actuelle</h2>
+        {!stats || stats.total === 0 ? (
+          <p style={{ color: '#9ca3af', fontSize: 13 }}>
+            Aucune transaction importée. Importez un fichier Patrim (XLSX) ou DVF (CSV) pour démarrer.
+          </p>
+        ) : (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+              {[
+                [stats?.total?.toLocaleString('fr-FR') || '—', 'Transactions'],
+                [stats?.dateMin || '—', 'Date la plus ancienne'],
+                [stats?.dateMax || '—', 'Date la plus récente'],
+                ['Paris 75xxx', 'Périmètre']
+              ].map(([v, l]) => (
+                <div key={l} style={{ background: '#f9fafb', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
+                  <div style={{ fontWeight: 600, fontSize: 15, fontFamily: 'monospace' }}>{v}</div>
+                  <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>{l}</div>
+                </div>
+              ))}
+            </div>
+            <div className="alert alert-info">
+              <strong>Conseils pour de meilleurs comparables :</strong><br />
+              • Importez les fichiers des <strong>3 dernières années</strong> pour avoir une base solide<br />
+              • Ré-importez à chaque nouveau fichier semestriel — les doublons sont automatiquement gérés<br />
+              • Chaque import ajoute les nouvelles transactions sans écraser les existantes
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
