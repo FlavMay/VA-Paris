@@ -58,19 +58,16 @@ export default function Comparables() {
         : await parseDVFCSV(file, (read, valid) => setProgress(p => ({ ...p, read, valid })))
 
       if (parsed.length === 0) {
-        throw new Error('Aucune transaction valide trouvée dans le fichier. Vérifiez le format.')
+        throw new Error('Aucune transaction valide trouvee dans le fichier. Verifiez le format.')
       }
 
-      // Récupérer les clés existantes pour dédoublonnage
       const existingKeys = new Set()
       const { data: existingIds } = await supabase
         .from('comparables')
         .select('id_mutation,rue,date_mutation,surface,prix')
       if (existingIds) {
         existingIds.forEach(r => {
-          const key = r.id_mutation
-            ? String(r.id_mutation)
-            : `${r.rue}_${r.date_mutation}_${r.surface}_${r.prix}`
+          const key = `${r.id_mutation || 'na'}_${r.rue || 'na'}_${r.date_mutation || 'na'}_${r.surface || 'na'}_${r.prix || 'na'}`
           existingKeys.add(key)
         })
       }
@@ -87,7 +84,7 @@ export default function Comparables() {
         setProgress(p => ({ ...p, inserted }))
       }
 
-      setSuccess(`✅ ${inserted} transactions importées (${parsed.length - inserted} doublons ignorés)`)
+      setSuccess(`\u2705 ${inserted} transactions importees (${parsed.length - inserted} doublons ignores)`)
       loadStats()
     } catch (err) {
       setError('Erreur : ' + err.message)
@@ -96,10 +93,10 @@ export default function Comparables() {
   }
 
   async function clearAll() {
-    if (!confirm('Effacer TOUTES les transactions ? Cette action est irréversible.')) return
+    if (!confirm('Effacer TOUTES les transactions ? Cette action est irreversible.')) return
     await supabase.from('comparables').delete().neq('id', 0)
     setStats(s => ({ ...s, total: 0 }))
-    setSuccess('Base de données vidée.')
+    setSuccess('Base de donnees videe.')
   }
 
   const pct = progress.total ? Math.round(progress.inserted / progress.total * 100) : 0
@@ -109,22 +106,22 @@ export default function Comparables() {
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Comparables DVF</h1>
       <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 20 }}>
         Importez vos exports Patrim (XLSX) ou les fichiers DVF de data.gouv.fr (CSV).
-        Vous pouvez faire plusieurs imports successifs — les doublons sont automatiquement ignorés.
+        Vous pouvez faire plusieurs imports successifs - les doublons sont automatiquement ignores.
       </p>
 
       <div className="card" style={{ padding: 24, marginBottom: 16 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>📥 Importer un fichier</h2>
+        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Importer un fichier</h2>
 
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
-          <strong>Option 1 — Patrim XLSX</strong> (recommandé) : exportez depuis{' '}
+          <strong>Option 1 - Patrim XLSX</strong> (recommande) : exportez depuis{' '}
           <a href="https://www.impots.gouv.fr/particulier/rechercher-des-transactions-immobilieres" target="_blank" rel="noopener" style={{ color: '#1e40af', textDecoration: 'underline' }}>
-            impots.gouv.fr → Rechercher des transactions
+            impots.gouv.fr
           </a>
           {' '}et importez directement le fichier Excel.<br />
-          <strong>Option 2 — DVF CSV</strong> : téléchargez le fichier CSV département{' '}
+          <strong>Option 2 - DVF CSV</strong> : telechargez le fichier CSV departement{' '}
           <strong>75 (Paris)</strong> sur{' '}
           <a href="https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres/" target="_blank" rel="noopener" style={{ color: '#1e40af', textDecoration: 'underline' }}>
-            data.gouv.fr → Demandes de Valeurs Foncières
+            data.gouv.fr
           </a>.
         </div>
 
@@ -142,22 +139,20 @@ export default function Comparables() {
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#6b7280', marginBottom: 5 }}>
               <span>Lignes lues : {progress.read.toLocaleString('fr-FR')}</span>
               <span>Valides : {progress.valid.toLocaleString('fr-FR')}</span>
-              <span>Insérés : {progress.inserted.toLocaleString('fr-FR')} / {progress.total.toLocaleString('fr-FR')}</span>
+              <span>Inseres : {progress.inserted.toLocaleString('fr-FR')} / {progress.total.toLocaleString('fr-FR')}</span>
             </div>
             <div style={{ background: '#e5e7eb', borderRadius: 4, height: 8, overflow: 'hidden' }}>
               <div style={{ background: '#1e40af', height: '100%', width: pct + '%', transition: 'width .3s', borderRadius: 4 }} />
             </div>
             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-              {pct}% — Ne fermez pas cette page pendant l'import
+              {pct}% - Ne fermez pas cette page pendant l import
             </div>
           </div>
         )}
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button className="btn-teal" onClick={() => fileRef.current?.click()} disabled={importing}>
-            {importing
-              ? <><span className="spinner" style={{ marginRight: 8 }} />Import en cours…</>
-              : '📂 Sélectionner un fichier CSV ou XLSX'}
+            {importing ? 'Import en cours...' : 'Selectionner un fichier CSV ou XLSX'}
           </button>
           <input
             ref={fileRef}
@@ -168,26 +163,26 @@ export default function Comparables() {
           />
           {stats?.total > 0 && (
             <button className="btn-danger" onClick={clearAll} disabled={importing}>
-              🗑 Effacer toute la base
+              Effacer toute la base
             </button>
           )}
         </div>
       </div>
 
       <div className="card" style={{ padding: 24 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>📊 Base de données actuelle</h2>
+        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>Base de donnees actuelle</h2>
         {!stats || stats.total === 0 ? (
           <p style={{ color: '#9ca3af', fontSize: 13 }}>
-            Aucune transaction importée. Importez un fichier Patrim (XLSX) ou DVF (CSV) pour démarrer.
+            Aucune transaction importee. Importez un fichier Patrim (XLSX) ou DVF (CSV) pour demarrer.
           </p>
         ) : (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
-                [stats?.total?.toLocaleString('fr-FR') || '—', 'Transactions'],
-                [stats?.dateMin || '—', 'Date la plus ancienne'],
-                [stats?.dateMax || '—', 'Date la plus récente'],
-                ['Paris 75xxx', 'Périmètre']
+                [stats?.total?.toLocaleString('fr-FR') || '-', 'Transactions'],
+                [stats?.dateMin || '-', 'Date la plus ancienne'],
+                [stats?.dateMax || '-', 'Date la plus recente'],
+                ['Paris 75xxx', 'Perimetre']
               ].map(([v, l]) => (
                 <div key={l} style={{ background: '#f9fafb', borderRadius: 8, padding: '12px 14px', textAlign: 'center' }}>
                   <div style={{ fontWeight: 600, fontSize: 15, fontFamily: 'monospace' }}>{v}</div>
@@ -197,9 +192,9 @@ export default function Comparables() {
             </div>
             <div className="alert alert-info">
               <strong>Conseils pour de meilleurs comparables :</strong><br />
-              • Importez les fichiers des <strong>3 dernières années</strong> pour avoir une base solide<br />
-              • Ré-importez à chaque nouveau fichier semestriel — les doublons sont automatiquement gérés<br />
-              • Chaque import ajoute les nouvelles transactions sans écraser les existantes
+              - Importez les fichiers des <strong>3 dernieres annees</strong> pour avoir une base solide<br />
+              - Re-importez a chaque nouveau fichier semestriel - les doublons sont automatiquement geres<br />
+              - Chaque import ajoute les nouvelles transactions sans ecraser les existantes
             </div>
           </>
         )}
