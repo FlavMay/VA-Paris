@@ -19,7 +19,7 @@ export function parseDVFRow(row) {
     numero:             parseInt(row.adresse_numero) || null,
     code_postal:        cp,
     arrondissement:     arr,
-    surface:            Math.round(pn(row.surface_reelle_bati) * 10) / 10,
+    surface:            Math.round(surf * 10) / 10,
     surface_utile:      null,
     prix:               Math.round(prix),
     prix_m2:            Math.round(prix / surf),
@@ -67,47 +67,41 @@ export function parsePatrimXLSX(file) {
         wb.SheetNames.forEach(sheetName => {
           const ws = wb.Sheets[sheetName]
           const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: 2 })
-          rows.forEach((row, idx) => {
-            // Prendre la premiere cle disponible pour ref
+          rows.forEach(row => {
             const keys = Object.keys(row)
-            const refKey = keys[0]
-            const ref = String(row[refKey] || '')
-            if (!ref || !ref.match(/\d{4}P\d+/)) return
 
-            // Surface et prix — colonnes numeriques directement
-            const surfKey = keys.find(k => k.includes('Carrez') && k.includes('m'))
-            const surfUtileKey = keys.find(k => k.includes('Utile') && k.includes('m'))
-            const prixKey = keys.find(k => k.includes('Prix') && !k.includes('m'))
-            const adresseKey = keys.find(k => k.includes('Adresse'))
-            const dateKey = keys.find(k => k.includes('Date'))
-            const communeKey = keys.find(k => k.includes('Commune'))
-            const piecesKey = keys.find(k => k.includes('ces') || k.includes('Pieces'))
-            const etageKey = keys.find(k => k.includes('tage'))
-            const anneeKey = keys.find(k => k.includes('nne'))
+            // Detection des colonnes par position (plus fiable que par nom)
+            // Col 0=Ref, 1=RefCad, 2=Dept, 3=Commune, 4=Adresse, 5=Date, 6=Annee, 7=Pieces, 8=Etage, 9=SurfCarrez, 10=SurfUtile, 11=Prix, 12=PrixM2Carrez, 13=PrixM2Utile
+            if (keys.length < 12) return
 
-            const surf = pn(row[surfKey])
-            const surfUtile = pn(row[surfUtileKey])
-            const prix = pn(row[prixKey])
+            const ref = String(row[keys[0]] || '')
+            // Verifier que c'est bien une ref transaction (ex: 2025P13064)
+            if (!ref || ref.length < 5 || !ref.match(/[0-9]{4}[A-Z][0-9]+/)) return
+
+            const surf = pn(row[keys[9]])
+            const surfUtile = pn(row[keys[10]])
+            const prix = pn(row[keys[11]])
 
             if (!surf || surf < 7 || !prix || prix < 1000) return
 
-            const commune = String(row[communeKey] || '')
+            const commune = String(row[keys[3]] || '')
             let cp = '75006'
             if (commune.includes('07')) cp = '75007'
             else if (commune.includes('08')) cp = '75008'
             const cod = cp.slice(-2)
             const arr = (cod.startsWith('0') ? cod[1] : cod) + 'e'
 
-            const adresse = String(row[adresseKey] || '').trim()
+            const adresse = String(row[keys[4]] || '').trim()
             const numMatch = adresse.match(/^(\d+\s*(?:bis|ter|quater)?)\s+(.+)$/i)
 
-            const etageRaw = parseInt(row[etageKey])
-            const anneeRaw = parseInt(row[anneeKey])
-            const dateVal = String(row[dateKey] || '')
+            const dateVal = String(row[keys[5]] || '')
+            const anneeRaw = parseInt(row[keys[6]])
+            const piecesRaw = parseInt(row[keys[7]])
+            const etageRaw = parseInt(row[keys[8]])
 
             results.push({
               id_mutation:        ref,
-              date_mutation:      dateVal.includes('/') ? dateVal.split('/').reverse().join('-') : dateVal || null,
+              date_mutation:      dateVal.includes('/') ? dateVal.split('/').reverse().join('-') : (dateVal || null),
               rue:                (numMatch ? numMatch[2] : adresse).toUpperCase().trim(),
               numero:             numMatch ? parseInt(numMatch[1]) : null,
               code_postal:        cp,
@@ -116,10 +110,10 @@ export function parsePatrimXLSX(file) {
               surface_utile:      surfUtile > 0 ? Math.round(surfUtile * 10) / 10 : null,
               prix:               Math.round(prix),
               prix_m2:            Math.round(prix / surf),
-              pieces:             parseInt(row[piecesKey]) || null,
+              pieces:             isNaN(piecesRaw) ? null : piecesRaw,
               nombre_lots:        null,
-              etage:              !isNaN(etageRaw) ? etageRaw : null,
-              annee_construction: !isNaN(anneeRaw) && anneeRaw > 1000 ? anneeRaw : null,
+              etage:              isNaN(etageRaw) ? null : etageRaw,
+              annee_construction: (!isNaN(anneeRaw) && anneeRaw > 1000) ? anneeRaw : null,
               latitude:           null,
               longitude:          null,
             })
