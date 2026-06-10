@@ -76,7 +76,6 @@ export function parsePatrimXLSX(file) {
           const ws = wb.Sheets[sheetName]
           const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: 2 })
           rows.forEach(row => {
-            // Ignorer les lignes de titre, sous-titres et vides
             const ref = String(row['Réf. Enreg.'] || '')
             if (!ref || ref.startsWith('Transactions') || !ref.includes('P')) return
 
@@ -107,37 +106,4 @@ export function parsePatrimXLSX(file) {
                                     ? String(row['Date Vente']).split('/').reverse().join('-')
                                     : null,
               rue:                (numMatch ? numMatch[2] : adresse).toUpperCase().trim(),
-              numero:             numMatch ? parseInt(numMatch[1]) : null,
-              code_postal:        cp,
-              arrondissement:     arr,
-              surface:            Math.round(surf * 10) / 10,
-              surface_utile:      !isNaN(surfUtile) && surfUtile > 0 ? Math.round(surfUtile * 10) / 10 : null,
-              prix:               Math.round(prix),
-              prix_m2:            Math.round(prix / surf),
-              pieces:             parseInt(row['Nb Pièces']) || null,
-              nombre_lots:        null,
-              etage:              !isNaN(etageRaw) ? etageRaw : null,
-              annee_construction: !isNaN(anneeRaw) && anneeRaw > 1000 ? anneeRaw : null,
-              latitude:           null,
-              longitude:          null,
-            })
-          })
-        })
-        resolve(results)
-      } catch (err) { reject(err) }
-    }
-    reader.onerror = reject
-    reader.readAsArrayBuffer(file)
-  })
-}
-
-// Déduplique par (id_mutation, surface, prix) pour éviter les doublons lors d'imports multiples
-export function deduplicateComps(newComps, existingKeys) {
-  const seen = new Set(existingKeys)
-  return newComps.filter(c => {
-    const key = `${c.id_mutation}_${c.surface}_${c.prix}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-}
+              numero:             numMatch ?
