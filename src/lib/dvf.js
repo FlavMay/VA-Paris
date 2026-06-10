@@ -133,10 +133,11 @@ export function parsePatrimXLSX(file) {
 
 // Déduplique par (id_mutation, surface, prix) pour éviter les doublons lors d'imports multiples
 export function deduplicateComps(newComps, existingKeys) {
+  const seen = new Set(existingKeys)
   return newComps.filter(c => {
     const key = `${c.id_mutation}_${c.surface}_${c.prix}`
-    if (existingKeys.has(key)) return false
-    existingKeys.add(key)
+    if (seen.has(key)) return false
+    seen.add(key)
     return true
   })
 }
