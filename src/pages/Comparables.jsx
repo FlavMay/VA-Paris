@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { parseDVFCSV, deduplicateComps } from '../lib/dvf'
+import { parseDVFCSV, parsePatrimXLSX, deduplicateComps } from '../lib/dvf'
 
 const BATCH_SIZE = 500
 
