@@ -74,7 +74,7 @@ export function parsePatrimXLSX(file) {
 
         wb.SheetNames.forEach(sheetName => {
           const ws = wb.Sheets[sheetName]
-          const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+          const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: 2 })
           rows.forEach(row => {
             // Ignorer les lignes de titre, sous-titres et vides
             const ref = String(row['Réf. Enreg.'] || '')
