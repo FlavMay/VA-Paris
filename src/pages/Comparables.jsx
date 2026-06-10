@@ -35,7 +35,6 @@ export default function Comparables() {
     try {
       const isXLSX = file.name.endsWith('.xlsx') || file.name.endsWith('.xls')
 
-      // Charger SheetJS dynamiquement si XLSX
       if (isXLSX && !window.XLSX) {
         await new Promise((res, rej) => {
           const s = document.createElement('script')
@@ -45,11 +44,23 @@ export default function Comparables() {
         })
       }
 
+      if (!isXLSX && !window.Papa) {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script')
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js'
+          s.onload = res; s.onerror = rej
+          document.head.appendChild(s)
+        })
+      }
+
       const parsed = isXLSX
         ? await parsePatrimXLSX(file)
         : await parseDVFCSV(file, (read, valid) => setProgress(p => ({ ...p, read, valid })))
 
-      // Récupérer les clés existantes pour dédoublonnage
+      if (parsed.length === 0) {
+        throw new Error('Aucune transaction valide trouvée dans le fichier. Vérifiez le format.')
+      }
+
       const existingKeys = new Set()
       const { data: existingIds } = await supabase.from('comparables').select('id_mutation,surface,prix')
       existingIds?.forEach(r => existingKeys.add(`${r.id_mutation}_${r.surface}_${r.prix}`))
@@ -57,7 +68,6 @@ export default function Comparables() {
 
       setProgress(p => ({ ...p, total: deduped.length }))
 
-      // Insertion par batches
       let inserted = 0
       for (let i = 0; i < deduped.length; i += BATCH_SIZE) {
         const batch = deduped.slice(i, i + BATCH_SIZE)
@@ -67,7 +77,7 @@ export default function Comparables() {
         setProgress(p => ({ ...p, inserted }))
       }
 
-      setSuccess(`✅ ${inserted} transactions importées (${parsed.length - inserted} doublons ignorés)`)
+      setSuccess(`✅ ${inserted} transactions importées (${parsed.length - deduped.length} doublons ignorés)`)
       loadStats()
     } catch (err) {
       setError('Erreur : ' + err.message)
@@ -88,20 +98,24 @@ export default function Comparables() {
     <div>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Comparables DVF</h1>
       <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 20 }}>
-        Importez les données de transactions immobilières depuis data.gouv.fr ou vos exports Patrim (XLSX).
+        Importez vos exports Patrim (XLSX) ou les fichiers DVF de data.gouv.fr (CSV).
         Vous pouvez faire plusieurs imports successifs — les doublons sont automatiquement ignorés.
       </p>
 
-      {/* Import card */}
       <div className="card" style={{ padding: 24, marginBottom: 16 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>📥 Importer un fichier</h2>
+
         <div className="alert alert-info" style={{ marginBottom: 16 }}>
-          <strong>Option 1 — DVF (CSV) :</strong>{' '}
+          <strong>Option 1 — Patrim XLSX</strong> (recommandé) : exportez depuis{' '}
+          <a href="https://www.impots.gouv.fr/particulier/rechercher-des-transactions-immobilieres" target="_blank" rel="noopener" style={{ color: '#1e40af', textDecoration: 'underline' }}>
+            impots.gouv.fr → Rechercher des transactions
+          </a>
+          {' '}et importez directement le fichier Excel.<br />
+          <strong>Option 2 — DVF CSV</strong> : téléchargez le fichier CSV département{' '}
+          <strong>75 (Paris)</strong> sur{' '}
           <a href="https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres/" target="_blank" rel="noopener" style={{ color: '#1e40af', textDecoration: 'underline' }}>
             data.gouv.fr → Demandes de Valeurs Foncières
-          </a>
-          {' '}→ département <strong>75 (Paris)</strong>, fichier annuel ou semestriel.<br />
-          <strong>Option 2 — Patrim (XLSX) :</strong> exportez depuis impots.gouv.fr et importez directement votre fichier Excel.
+          </a>.
         </div>
 
         {error && (
@@ -135,7 +149,6 @@ export default function Comparables() {
               ? <><span className="spinner" style={{ marginRight: 8 }} />Import en cours…</>
               : '📂 Sélectionner un fichier CSV ou XLSX'}
           </button>
-          {/* ✅ CORRECTION ICI : accept inclut .xlsx */}
           <input
             ref={fileRef}
             type="file"
@@ -151,12 +164,11 @@ export default function Comparables() {
         </div>
       </div>
 
-      {/* Stats card */}
       <div className="card" style={{ padding: 24 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>📊 Base de données actuelle</h2>
         {!stats || stats.total === 0 ? (
           <p style={{ color: '#9ca3af', fontSize: 13 }}>
-            Aucune transaction importée. Importez un fichier DVF ou Patrim pour démarrer.
+            Aucune transaction importée. Importez un fichier Patrim (XLSX) ou DVF (CSV) pour démarrer.
           </p>
         ) : (
           <>
@@ -176,7 +188,7 @@ export default function Comparables() {
             <div className="alert alert-info">
               <strong>Conseils pour de meilleurs comparables :</strong><br />
               • Importez les fichiers des <strong>3 dernières années</strong> pour avoir une base solide<br />
-              • Ré-importez à chaque nouveau fichier semestriel publié — les doublons sont automatiquement gérés<br />
+              • Ré-importez à chaque nouveau fichier semestriel — les doublons sont automatiquement gérés<br />
               • Chaque import ajoute les nouvelles transactions sans écraser les existantes
             </div>
           </>
