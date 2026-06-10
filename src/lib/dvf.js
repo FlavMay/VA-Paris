@@ -67,15 +67,52 @@ export function parsePatrimXLSX(file) {
         wb.SheetNames.forEach(sheetName => {
           const ws = wb.Sheets[sheetName]
           const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: 2 })
-          console.log('Nombre de rows lues:', rows.length)
-          console.log('Premiere row:', JSON.stringify(rows[0]))
-          console.log('Deuxieme row:', JSON.stringify(rows[1]))
-          console.log('Toutes les cles:', Object.keys(rows[0] || {}))
           rows.forEach(row => {
             const ref = String(row['Ref. Enreg.'] || '')
-            const surf = pn(row['Surface Carrez (m2)'])
+            if (!ref || !ref.match(/[0-9]{4}[A-Z][0-9]+/)) return
+
+            const surfC = pn(row['Surface Carrez (m2)'])
+            const surfU = pn(row['Surface Utile (m2)'])
             const prix = pn(row['Prix (EUR)'])
-            console.log('ref:', ref, '| surf:', surf, '| prix:', prix, '| match:', /[0-9]{4}[A-Z][0-9]+/.test(ref))
+
+            // Utiliser surface utile comme fallback si carrez manquant
+            const surf = (surfC && surfC > 1) ? surfC : surfU
+
+            if (!surf || surf < 7 || !prix || prix < 1000) return
+
+            const commune = String(row['Commune'] || '')
+            let cp = '75006'
+            if (commune.includes('07')) cp = '75007'
+            else if (commune.includes('08')) cp = '75008'
+            const cod = cp.slice(-2)
+            const arr = (cod.startsWith('0') ? cod[1] : cod) + 'e'
+
+            const adresse = String(row['Adresse'] || '').trim()
+            const numMatch = adresse.match(/^(\d+\s*(?:bis|ter|quater)?)\s+(.+)$/i)
+
+            const dateVal = String(row['Date Vente'] || '')
+            const anneeRaw = parseInt(row['Annee Constr.'])
+            const piecesRaw = parseInt(row['Nb Pieces'])
+            const etageRaw = parseInt(row['Etage'])
+
+            results.push({
+              id_mutation:        ref,
+              date_mutation:      dateVal.includes('/') ? dateVal.split('/').reverse().join('-') : (dateVal || null),
+              rue:                (numMatch ? numMatch[2] : adresse).toUpperCase().trim(),
+              numero:             numMatch ? parseInt(numMatch[1]) : null,
+              code_postal:        cp,
+              arrondissement:     arr,
+              surface:            Math.round(surf * 10) / 10,
+              surface_utile:      (surfU && surfU > 1) ? Math.round(surfU * 10) / 10 : null,
+              prix:               Math.round(prix),
+              prix_m2:            Math.round(prix / surf),
+              pieces:             isNaN(piecesRaw) ? null : piecesRaw,
+              nombre_lots:        null,
+              etage:              isNaN(etageRaw) ? null : etageRaw,
+              annee_construction: (!isNaN(anneeRaw) && anneeRaw > 1000) ? anneeRaw : null,
+              latitude:           null,
+              longitude:          null,
+            })
           })
         })
         resolve(results)
