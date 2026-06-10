@@ -68,36 +68,29 @@ export function parsePatrimXLSX(file) {
           const ws = wb.Sheets[sheetName]
           const rows = XLSX.utils.sheet_to_json(ws, { defval: '', range: 2 })
           rows.forEach(row => {
-            const keys = Object.keys(row)
+            const ref = String(row['Ref. Enreg.'] || '')
+            if (!ref || !ref.match(/[0-9]{4}[A-Z][0-9]+/)) return
 
-            // Detection des colonnes par position (plus fiable que par nom)
-            // Col 0=Ref, 1=RefCad, 2=Dept, 3=Commune, 4=Adresse, 5=Date, 6=Annee, 7=Pieces, 8=Etage, 9=SurfCarrez, 10=SurfUtile, 11=Prix, 12=PrixM2Carrez, 13=PrixM2Utile
-            if (keys.length < 12) return
-
-            const ref = String(row[keys[0]] || '')
-            // Verifier que c'est bien une ref transaction (ex: 2025P13064)
-            if (!ref || ref.length < 5 || !ref.match(/[0-9]{4}[A-Z][0-9]+/)) return
-
-            const surf = pn(row[keys[9]])
-            const surfUtile = pn(row[keys[10]])
-            const prix = pn(row[keys[11]])
+            const surf = pn(row['Surface Carrez (m2)'])
+            const surfUtile = pn(row['Surface Utile (m2)'])
+            const prix = pn(row['Prix (EUR)'])
 
             if (!surf || surf < 7 || !prix || prix < 1000) return
 
-            const commune = String(row[keys[3]] || '')
+            const commune = String(row['Commune'] || '')
             let cp = '75006'
             if (commune.includes('07')) cp = '75007'
             else if (commune.includes('08')) cp = '75008'
             const cod = cp.slice(-2)
             const arr = (cod.startsWith('0') ? cod[1] : cod) + 'e'
 
-            const adresse = String(row[keys[4]] || '').trim()
+            const adresse = String(row['Adresse'] || '').trim()
             const numMatch = adresse.match(/^(\d+\s*(?:bis|ter|quater)?)\s+(.+)$/i)
 
-            const dateVal = String(row[keys[5]] || '')
-            const anneeRaw = parseInt(row[keys[6]])
-            const piecesRaw = parseInt(row[keys[7]])
-            const etageRaw = parseInt(row[keys[8]])
+            const dateVal = String(row['Date Vente'] || '')
+            const anneeRaw = parseInt(row['Annee Constr.'])
+            const piecesRaw = parseInt(row['Nb Pieces'])
+            const etageRaw = parseInt(row['Etage'])
 
             results.push({
               id_mutation:        ref,
