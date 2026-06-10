@@ -117,9 +117,7 @@ export function parsePatrimXLSX(file) {
 export function deduplicateComps(newComps, existingKeys) {
   const seen = new Set(existingKeys)
   return newComps.filter(c => {
-    const key = c.id_mutation
-      ? String(c.id_mutation)
-      : `${c.rue}_${c.date_mutation}_${c.surface}_${c.prix}`
+    const key = `${c.id_mutation || 'na'}_${c.rue || 'na'}_${c.date_mutation || 'na'}_${c.surface || 'na'}_${c.prix || 'na'}`
     if (seen.has(key)) return false
     seen.add(key)
     return true
