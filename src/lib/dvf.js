@@ -69,3 +69,53 @@ export function deduplicateComps(newComps, existingKeys) {
     return true
   })
 }
+export function parsePatrimXLSX(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const XLSX = window.XLSX
+        const wb = XLSX.read(e.target.result, { type: 'array' })
+        const results = []
+
+        wb.SheetNames.forEach(sheetName => {
+          const ws = wb.Sheets[sheetName]
+          const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+          rows.forEach(row => {
+            const prix = parseFloat(String(row['Prix (€)'] || '').replace(/\s/g, '').replace(',', '.'))
+            const surf = parseFloat(String(row['Surface Carrez (m²)'] || row['Surface Utile (m²)'] || '').replace(',', '.'))
+            const surfUtile = parseFloat(String(row['Surface Utile (m²)'] || '').replace(',', '.'))
+            if (!prix || !surf || surf < 7) return
+            const cp = (row['Commune'] || '').includes('06') ? '75006' :
+                       (row['Commune'] || '').includes('07') ? '75007' : '750' + (row['Commune'] || '').replace('PARIS ', '').padStart(2, '0')
+            const cod = cp.slice(-2)
+            const arr = (cod.startsWith('0') ? cod[1] : cod) + 'e'
+            const adresse = (row['Adresse'] || '').trim()
+            const numMatch = adresse.match(/^(\d+)\s+(.+)$/)
+            results.push({
+              id_mutation:    row['Réf. Enreg.'] || null,
+              date_mutation:  row['Date Vente'] ? row['Date Vente'].split('/').reverse().join('-') : null,
+              rue:            (numMatch ? numMatch[2] : adresse).toUpperCase(),
+              numero:         numMatch ? parseInt(numMatch[1]) : null,
+              code_postal:    cp,
+              arrondissement: arr,
+              surface:        Math.round(surf * 10) / 10,
+              surface_utile:  surfUtile || null,
+              prix:           Math.round(prix),
+              prix_m2:        Math.round(prix / surf),
+              pieces:         parseInt(row['Nb Pièces']) || null,
+              etage:          row['Étage'] || null,
+              annee_construction: row['Année Constr.'] || null,
+              nombre_lots:    null,
+              latitude:       null,
+              longitude:      null,
+            })
+          })
+        })
+        resolve(results)
+      } catch (err) { reject(err) }
+    }
+    reader.onerror = reject
+    reader.readAsArrayBuffer(file)
+  })
+}
