@@ -17,11 +17,13 @@ export default function BienDetail() {
   const [loading, setLoading] = useState(true)
   const [estimating, setEstimating] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [selectedComps, setSelectedComps] = useState(null)
 
   const [hyp, setHyp] = useState({
     loyer_mensuel: null, travaux_manuel: null, prix_fai: null,
     premiumRevente: 0, creditPct: null, tauxCredit: null,
     dureeCredit: null, appreciation: null, vacanceMois: null, chargesPct: null,
+    prixReventeAujourdhui: null,
   })
   const updHyp = patch => setHyp(prev => ({ ...prev, ...patch }))
 
@@ -29,14 +31,20 @@ export default function BienDetail() {
     supabase.from('properties').select('*').eq('id', id).single()
       .then(({ data }) => {
         setBien(data)
-        if (data) setHyp({
-          loyer_mensuel:  data.loyer_mensuel  || null,
-          travaux_manuel: data.travaux_manuel || null,
-          prix_fai:       null,
-          premiumRevente: data.premiumRevente || 0,
-          creditPct:      null, tauxCredit: null, dureeCredit: null,
-          appreciation:   null, vacanceMois: null, chargesPct: null,
-        })
+        if (data) {
+          setHyp({
+            loyer_mensuel: data.loyer_mensuel || null,
+            travaux_manuel: data.travaux_manuel || null,
+            prix_fai: null, premiumRevente: data.premiumRevente || 0,
+            creditPct: null, tauxCredit: null, dureeCredit: null,
+            appreciation: null, vacanceMois: null, chargesPct: null,
+            prixReventeAujourdhui: null,
+          })
+          // Initialiser tous les comparables comme selectionnes
+          if (data.comp_stats?.comps) {
+            setSelectedComps(data.comp_stats.comps.map((_, i) => i))
+          }
+        }
         setLoading(false)
       })
   }, [id])
@@ -49,7 +57,7 @@ export default function BienDetail() {
 
   const saveHyp = async () => {
     await supabase.from('properties').update({
-      loyer_mensuel:  hyp.loyer_mensuel,
+      loyer_mensuel: hyp.loyer_mensuel,
       travaux_manuel: hyp.travaux_manuel,
       premiumRevente: hyp.premiumRevente,
     }).eq('id', id)
@@ -64,7 +72,8 @@ export default function BienDetail() {
     try {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 200,
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514', max_tokens: 200,
           messages: [{ role: 'user', content: `Estime le loyer mensuel nu (hors charges) pour: ${bien.surface || '?'}m2, ${bien.pieces || '?'} pieces, ${bien.arrondissement || 'Paris'} arr., etat: ${bien.etat || 'bon'}, adresse: ${bien.adresse || bien.rue || 'Paris'}. UNIQUEMENT JSON: {"loyer":1800,"fourchette":"1700-1900","explication":"1 phrase"}` }]
         })
       })
@@ -93,20 +102,46 @@ export default function BienDetail() {
   }
 
   const prixEff = hyp.prix_fai || bien.prix
+
+  // Comparables actifs = selectionnes par l utilisateur
+  const allComps = bien.comp_stats?.comps || []
+  const activeCompIndices = selectedComps || allComps.map((_, i) => i)
+  const activeComps = allComps.filter((_, i) => activeCompIndices.includes(i))
+
+  // Recalculer les stats sur les comparables selectionnes
+  const pm2sActive = activeComps.map(c => c.prix_m2).filter(Boolean).sort((a, b) => a - b)
+  const activeStats = pm2sActive.length ? (() => {
+    const n = pm2sActive.length
+    const q = r => pm2sActive[Math.min(n - 1, Math.floor(n * r))]
+    return { n, q1: q(0.25), median: q(0.50), q3: q(0.75), avg: Math.round(pm2sActive.reduce((a, b) => a + b, 0) / n), pm2s: pm2sActive }
+  })() : bien.comp_stats
+
+  const cs = activeStats || bien.comp_stats
+  const pm2A = prixEff && bien.surface ? Math.round(prixEff / bien.surface) : bien.pm2_ask
+
+  // Prix de revente :
+  // Si prix_revente_aujourd_hui saisi → ce prix * (1 + appreciation)^horizon
+  // Sinon → ARV Q3 * (1 + premium) * (1 + appreciation)^horizon
+  const prixRevEstAujourdhui = hyp.prixReventeAujourdhui
+    || (cs?.q3 && bien.surface ? cs.q3 * bien.surface * (1 + (hyp.premiumRevente || 0) / 100) : null)
+    || prixEff
+
+  const revente = prixRevEstAujourdhui * (1 + effSettings.appreciation / 100) ** effSettings.horizon
+
   const bienEff = {
     ...bien,
-    prix:           prixEff,
-    loyer_mensuel:  hyp.loyer_mensuel,
-    loyerMensuel:   hyp.loyer_mensuel,
+    prix: prixEff,
+    loyer_mensuel: hyp.loyer_mensuel,
+    loyerMensuel: hyp.loyer_mensuel,
     travaux_manuel: hyp.travaux_manuel,
-    travauxManuel:  hyp.travaux_manuel,
+    travauxManuel: hyp.travaux_manuel,
     premiumRevente: hyp.premiumRevente || 0,
+    comp_stats: cs,
+    _reventeOverride: revente,
   }
 
   const m = calcMetrics(bienEff, effSettings)
   const sc = m ? calcScore(bienEff, m, effSettings) : 0
-  const cs = bien.comp_stats
-  const pm2A = prixEff && bien.surface ? Math.round(prixEff / bien.surface) : bien.pm2_ask
   const hist = cs ? buildHistogram(cs.pm2s, pm2A) : []
   const disc = cs && pm2A ? Math.round((1 - pm2A / cs.median) * 100) : null
   const arvQ3 = cs && bien.surface ? cs.q3 * bien.surface : null
@@ -138,7 +173,7 @@ export default function BienDetail() {
       {/* LIRR */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>LIRR · {effSettings.horizon} ans · {effSettings.creditPct}% credit @ {effSettings.tauxCredit}%</span>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>LIRR · {effSettings.horizon} ans · LTV {effSettings.creditPct}% @ {effSettings.tauxCredit}%</span>
           <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 26, color: loyer ? barC : '#9ca3af' }}>{fmt.pct(m?.lirr)}</span>
         </div>
         <div style={{ height: 10, background: '#e5e7eb', borderRadius: 5, overflow: 'hidden', marginBottom: 4 }}>
@@ -164,7 +199,7 @@ export default function BienDetail() {
       {/* Hypotheses */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Hypotheses de calcul — modifiez et observez le LIRR en temps reel</h2>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Hypotheses — recalcul LIRR en temps reel</h2>
           <button className="btn-primary btn-sm" onClick={saveHyp}>{saved ? 'Sauvegarde !' : 'Sauvegarder'}</button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -173,7 +208,7 @@ export default function BienDetail() {
             <div style={{ display: 'flex', gap: 4 }}>
               <input type="number" value={loyer || ''} onChange={e => updHyp({ loyer_mensuel: +e.target.value || null })}
                 placeholder="Ex: 1800" style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-              <button className="btn-ghost btn-sm" onClick={estimateLoyer} disabled={estimating} style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+              <button className="btn-ghost btn-sm" onClick={estimateLoyer} disabled={estimating} style={{ fontSize: 11 }}>
                 {estimating ? '...' : 'IA'}
               </button>
             </div>
@@ -186,37 +221,42 @@ export default function BienDetail() {
               style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
           </div>
           {inp('Travaux (EUR) — vide = auto', hyp.travaux_manuel, v => updHyp({ travaux_manuel: v }), { placeholder: 'Calcul auto' })}
-          {inp('Apport (%)', hyp.creditPct ?? effSettings.creditPct, v => updHyp({ creditPct: v }))}
+          {inp('LTV (%)', hyp.creditPct ?? effSettings.creditPct, v => updHyp({ creditPct: v }))}
           {inp('Taux credit (%)', hyp.tauxCredit ?? effSettings.tauxCredit, v => updHyp({ tauxCredit: v }), { step: 0.1 })}
           {inp('Duree credit (ans)', hyp.dureeCredit ?? effSettings.dureeCredit, v => updHyp({ dureeCredit: v }))}
           {inp('Vacance locative (mois/an)', hyp.vacanceMois ?? effSettings.vacanceMois, v => updHyp({ vacanceMois: v }), { step: 0.5 })}
           {inp('Charges (% des loyers)', hyp.chargesPct ?? effSettings.chargesPct, v => updHyp({ chargesPct: v }))}
           {inp('Appreciation annuelle (%)', hyp.appreciation ?? effSettings.appreciation, v => updHyp({ appreciation: v }), { step: 0.1 })}
           <div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>
-              Premium revente (%) — etage, vis-a-vis...
-            </div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Premium revente (%) — etage, vis-a-vis...</div>
             <input type="number" step="0.5" value={hyp.premiumRevente || 0} onChange={e => updHyp({ premiumRevente: +e.target.value || 0 })}
               style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
           </div>
           <div>
             <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>
-              Prix revente manuel (EUR){m?.revente && bien.surface ? ' · ' + Math.round(m.revente / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''}
+              Prix revente aujourd hui (EUR){hyp.prixReventeAujourdhui && bien.surface ? ' · ' + Math.round(hyp.prixReventeAujourdhui / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''}
             </div>
-            <input type="number" value={hyp.prixRevente || ''} onChange={e => updHyp({ prixRevente: +e.target.value || null })}
-              placeholder={'Auto: ' + (m?.revente ? Math.round(m.revente).toLocaleString('fr-FR') : '—')}
+            <input type="number" value={hyp.prixReventeAujourdhui || ''}
+              onChange={e => updHyp({ prixReventeAujourdhui: +e.target.value || null })}
+              placeholder={prixRevEstAujourdhui ? Math.round(prixRevEstAujourdhui).toLocaleString('fr-FR') + ' (auto)' : 'Auto'}
               style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+            <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
+              Revente dans {effSettings.horizon} ans: {fmt.euro(revente)}
+              {bien.surface ? ' · ' + Math.round(revente / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''}
+            </div>
           </div>
         </div>
         <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-          Toutes les modifications recalculent le LIRR instantanement. Cliquez Sauvegarder pour conserver loyer, travaux et premium.
+          Prix revente aujourd hui = valeur estimee au marche actuel. L appreciation annuelle s applique ensuite sur cette base sur la duree de detention.
         </p>
       </div>
 
       {/* DVF */}
       {cs && (
         <div className="card" style={{ padding: 18, marginBottom: 14 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Analyse DVF · {cs.n} comparables</h2>
+          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>
+            Analyse DVF · {activeCompIndices.length}/{allComps.length} comparables selectionnes
+          </h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 14 }}>
             {[
               [fmt.pm2(cs.q1), 'Q1', '#6b7280'],
@@ -247,31 +287,43 @@ export default function BienDetail() {
             </div>
           )}
 
-          {cs.comps && cs.comps.length > 0 && (
+          {/* Table comparables avec checkboxes */}
+          {allComps.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 6 }}>
-                Comparables utilises ({cs.comps.length})
+                Comparables — decochez pour exclure de l analyse
               </div>
-              <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}>
+              <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
                     <tr>
-                      {['Date', 'Rue', 'Surf.', 'Etage', 'Prix/m2', 'Prix total'].map(h => (
+                      {['', 'Date', 'Rue', 'Surf.', 'Etage', 'Prix/m2', 'Prix total'].map(h => (
                         <th key={h} style={{ padding: '7px 10px', textAlign: 'left', fontWeight: 500, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {cs.comps.map((c, i) => (
-                      <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f9fafb' }}>
-                        <td style={{ padding: '6px 10px', color: '#6b7280' }}>{c.date_mutation}</td>
-                        <td style={{ padding: '6px 10px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.numero ? c.numero + ' ' : ''}{c.rue}</td>
-                        <td style={{ padding: '6px 10px' }}>{c.surface}m2</td>
-                        <td style={{ padding: '6px 10px' }}>{c.etage != null ? c.etage : '-'}</td>
-                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: 600 }}>{fmt.pm2(c.prix_m2)}</td>
-                        <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{fmt.euro(c.prix)}</td>
-                      </tr>
-                    ))}
+                    {allComps.map((c, i) => {
+                      const selected = activeCompIndices.includes(i)
+                      return (
+                        <tr key={i} style={{ background: selected ? 'white' : '#fafafa', opacity: selected ? 1 : 0.4 }}>
+                          <td style={{ padding: '6px 10px' }}>
+                            <input type="checkbox" checked={selected} onChange={() => {
+                              setSelectedComps(prev => {
+                                const cur = prev || allComps.map((_, j) => j)
+                                return cur.includes(i) ? cur.filter(x => x !== i) : [...cur, i]
+                              })
+                            }} />
+                          </td>
+                          <td style={{ padding: '6px 10px', color: '#6b7280' }}>{c.date_mutation}</td>
+                          <td style={{ padding: '6px 10px', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.numero ? c.numero + ' ' : ''}{c.rue}</td>
+                          <td style={{ padding: '6px 10px' }}>{c.surface}m2</td>
+                          <td style={{ padding: '6px 10px' }}>{c.etage != null ? c.etage : '-'}</td>
+                          <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: 600 }}>{fmt.pm2(c.prix_m2)}</td>
+                          <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{fmt.euro(c.prix)}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -305,14 +357,14 @@ export default function BienDetail() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         {[
           ['ACQUISITION', [
-            ['Prix FAI', fmt.euro(prixEff), '', prixEff && bien.surface ? Math.round(prixEff/bien.surface).toLocaleString('fr-FR')+' EUR/m2' : ''],
+            ['Prix FAI', fmt.euro(prixEff) + (prixEff && bien.surface ? ' · ' + Math.round(prixEff / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : '')],
             ['Frais notaire (8%)', fmt.euro(m?.fraisNotaire)],
             ['Travaux', fmt.euro(m?.travaux)],
             ['Total investi', fmt.euro(m?.totalInvesti), m?.totalInvesti <= effSettings.budgetMax ? '#15803d' : '#b91c1c']
           ]],
           ['FINANCEMENT', [
-            ['Apport ' + effSettings.creditPct + '%', fmt.euro(m?.apport)],
-            ['Credit', fmt.euro(m?.credit)],
+            ['LTV ' + effSettings.creditPct + '%', fmt.euro(m?.credit)],
+            ['Apport ' + (100 - effSettings.creditPct) + '%', fmt.euro(m?.apport)],
             ['Mensualite', fmt.euro(m?.mensualite, 0) + '/mois'],
             ['Taux & duree', effSettings.tauxCredit + '% · ' + effSettings.dureeCredit + ' ans']
           ]],
@@ -323,18 +375,19 @@ export default function BienDetail() {
             ['CF net/an', fmt.euro(m?.cashflowAnnuel, 0), m?.cashflowAnnuel >= 0 ? '#15803d' : '#b91c1c']
           ]],
           ['SORTIE ' + effSettings.horizon + ' ANS', [
-            ['Base revente', cs?.q3 ? 'ARV Q3 + premium' : 'Prix achat'],
-            ['Prix revente estime', fmt.euro(hyp.prixRevente || m?.revente), '', hyp.prixRevente || (m?.revente && bien.surface) ? Math.round((hyp.prixRevente || m?.revente) / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''],
+            ['Base revente (auj.)', fmt.euro(prixRevEstAujourdhui) + (bien.surface ? ' · ' + Math.round(prixRevEstAujourdhui / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : '')],
+            ['Appreciation ' + effSettings.appreciation + '%/an x ' + effSettings.horizon + 'ans', ''],
+            ['Prix revente estime', fmt.euro(revente) + (bien.surface ? ' · ' + Math.round(revente / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : '')],
             ['Capital restant', m ? '-' + fmt.euro(m.capitalRestant, 0) : '-'],
-            ['Frais vente ' + effSettings.fraisVente + '%', m ? '-' + fmt.euro((hyp.prixRevente || m?.revente) * effSettings.fraisVente / 100, 0) : '-'],
+            ['Frais vente ' + effSettings.fraisVente + '%', m ? '-' + fmt.euro(revente * effSettings.fraisVente / 100, 0) : '-'],
             ['Produit net revente', fmt.euro(m?.produitNetRevente), '#15803d']
           ]]
         ].map(([title, rows]) => (
           <div className="card" key={title} style={{ padding: '13px 15px' }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: '#9ca3af', marginBottom: 8 }}>{title}</div>
-            {rows.map(([k, v, c, sub]) => k && (
+            {rows.map(([k, v, c]) => k && (
               <div key={k} className="divider-row">
-                <span className="dk">{k}{sub ? <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>{sub}</span> : null}</span>
+                <span className="dk">{k}</span>
                 <span className="dv mono" style={{ color: c || '#111827' }}>{v}</span>
               </div>
             ))}
