@@ -156,7 +156,7 @@ Pour etat, utilise uniquement: bon, leger, complet, gros, occupe` }] })
       longitude: d.longitude || null,
       pm2_ask: pm2A,
       pieces: d.pieces || null,
-      comp_stats: activeStats || null,
+      comp_stats: activeStats ? { ...activeStats, comps: activeComps.slice(0, 50) } : null,
     }
     const { data } = await supabase.from('properties').insert(property).select().single()
     setSaving(false)
