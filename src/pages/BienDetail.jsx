@@ -32,19 +32,39 @@ export default function BienDetail() {
   useEffect(() => {
     supabase.from('properties').select('*').eq('id', id).single()
       .then(({ data }) => {
+        if (!data) { setLoading(false); return }
         setBien(data)
-        if (data) {
-          setHyp({
-            loyer_mensuel: data.loyer_mensuel || null,
-            travaux_manuel: data.travaux_manuel || null,
-            prix_fai: null, premiumRevente: data.premiumRevente || 0,
-            creditPct: null, tauxCredit: null, dureeCredit: null,
-            appreciation: null, vacanceMois: null, chargesPct: null,
-            prixReventeAujourdhui: null,
-          })
-          if (data.comp_stats?.comps) {
-            setSelectedComps(data.comp_stats.comps.map((_, i) => i))
-          }
+
+        // Restaurer toutes les hypotheses sauvegardees
+        setHyp({
+          loyer_mensuel:         data.loyer_mensuel         || null,
+          travaux_manuel:        data.travaux_manuel        || null,
+          prix_fai:              data.hyp_prix_fai          || null,
+          premiumRevente:        data.premiumRevente        || 0,
+          creditPct:             data.hyp_credit_pct        || null,
+          tauxCredit:            data.hyp_taux_credit       || null,
+          dureeCredit:           data.hyp_duree_credit      || null,
+          appreciation:          data.hyp_appreciation      || null,
+          vacanceMois:           data.hyp_vacance_mois      || null,
+          chargesPct:            data.hyp_charges_pct       || null,
+          prixReventeAujourdhui: data.hyp_prix_revente_auj  || null,
+        })
+
+        // Restaurer les parametres LMNP sauvegardes
+        setLmnp({
+          tmi:            data.lmnp_tmi             ?? DEFAULT_LMNP.tmi,
+          horizon:        data.lmnp_horizon          ?? DEFAULT_LMNP.horizon,
+          mobilier:       data.lmnp_mobilier         ?? DEFAULT_LMNP.mobilier,
+          taxeFonciere:   data.lmnp_taxe_fonciere    ?? DEFAULT_LMNP.taxeFonciere,
+          dureeAmortBien: data.lmnp_duree_amort_bien ?? DEFAULT_LMNP.dureeAmortBien,
+          dureeAmortTrav: data.lmnp_duree_amort_trav ?? DEFAULT_LMNP.dureeAmortTrav,
+          fraisGestion:   data.lmnp_frais_gestion    ?? DEFAULT_LMNP.fraisGestion,
+          assurance:      data.lmnp_assurance        ?? DEFAULT_LMNP.assurance,
+          dureeAmortMob:  DEFAULT_LMNP.dureeAmortMob,
+        })
+
+        if (data.comp_stats?.comps) {
+          setSelectedComps(data.comp_stats.comps.map((_, i) => i))
         }
         setLoading(false)
       })
@@ -56,13 +76,32 @@ export default function BienDetail() {
     nav('/dashboard')
   }
 
-  const saveHyp = async () => {
-    await supabase.from('properties').update({
-      loyer_mensuel: hyp.loyer_mensuel,
-      travaux_manuel: hyp.travaux_manuel,
-      premiumRevente: hyp.premiumRevente,
-    }).eq('id', id)
-    setBien(b => ({ ...b, loyer_mensuel: hyp.loyer_mensuel, travaux_manuel: hyp.travaux_manuel, premiumRevente: hyp.premiumRevente }))
+  const saveAll = async () => {
+    const updates = {
+      // Hypotheses financieres
+      loyer_mensuel:        hyp.loyer_mensuel,
+      travaux_manuel:       hyp.travaux_manuel,
+      premiumRevente:       hyp.premiumRevente,
+      hyp_prix_fai:         hyp.prix_fai,
+      hyp_credit_pct:       hyp.creditPct,
+      hyp_taux_credit:      hyp.tauxCredit,
+      hyp_duree_credit:     hyp.dureeCredit,
+      hyp_appreciation:     hyp.appreciation,
+      hyp_vacance_mois:     hyp.vacanceMois,
+      hyp_charges_pct:      hyp.chargesPct,
+      hyp_prix_revente_auj: hyp.prixReventeAujourdhui,
+      // Parametres LMNP
+      lmnp_tmi:             lmnp.tmi,
+      lmnp_horizon:         lmnp.horizon,
+      lmnp_mobilier:        lmnp.mobilier,
+      lmnp_taxe_fonciere:   lmnp.taxeFonciere,
+      lmnp_duree_amort_bien: lmnp.dureeAmortBien,
+      lmnp_duree_amort_trav: lmnp.dureeAmortTrav,
+      lmnp_frais_gestion:   lmnp.fraisGestion,
+      lmnp_assurance:       lmnp.assurance,
+    }
+    await supabase.from('properties').update(updates).eq('id', id)
+    setBien(b => ({ ...b, ...updates }))
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -126,10 +165,10 @@ export default function BienDetail() {
   const bienEff = {
     ...bien,
     prix: prixEff,
-    loyer_mensuel: hyp.loyer_mensuel,
-    loyerMensuel: hyp.loyer_mensuel,
+    loyer_mensuel:  hyp.loyer_mensuel,
+    loyerMensuel:   hyp.loyer_mensuel,
     travaux_manuel: hyp.travaux_manuel,
-    travauxManuel: hyp.travaux_manuel,
+    travauxManuel:  hyp.travaux_manuel,
     premiumRevente: hyp.premiumRevente || 0,
     comp_stats: cs,
     _reventeOverride: revente,
@@ -146,15 +185,13 @@ export default function BienDetail() {
   const barC = m?.lirr >= effSettings.lirrCible ? '#15803d' : m?.lirr >= 8 ? '#b45309' : '#b91c1c'
   const loyer = hyp.loyer_mensuel
 
-  // LMNP utilise sa propre duree de detention (lmnp.horizon)
-  const reventeForLmnp = prixRevEstAujourdhui * (1 + effSettings.appreciation / 100) ** lmnp.horizon
-  const bienEffLmnp = { ...bienEff, _reventeOverride: reventeForLmnp }
+  // LMNP — recalcul propre sans _reventeOverride pour que ce soit dynamique
   const lmnpResult = calcLIRR_LMNP(
-  { ...bienEff, _reventeOverride: null },
-  effSettings,
-  lmnp,
-  prixRevEstAujourdhui
-)
+    { ...bienEff, _reventeOverride: null },
+    effSettings,
+    lmnp,
+    prixRevEstAujourdhui
+  )
 
   const inp = (label, val, onChange, opts = {}) => (
     <div>
@@ -168,11 +205,11 @@ export default function BienDetail() {
   return (
     <div style={{ maxWidth: 820, margin: '0 auto' }}>
 
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
         <button className="btn-ghost btn-sm" onClick={() => nav('/dashboard')}>Retour</button>
         <h1 style={{ flex: 1, fontSize: 18, fontWeight: 700 }}>{bien.titre || 'Annonce'}</h1>
         <div style={{ width: 38, height: 38, borderRadius: 9, background: scB(sc), color: scC(sc), display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16 }}>{sc}</div>
+        <button className="btn-primary btn-sm" onClick={saveAll}>{saved ? 'Sauvegarde !' : 'Sauvegarder tout'}</button>
         <button className="btn-danger btn-sm" onClick={deleteBien}>Supprimer</button>
       </div>
 
@@ -204,10 +241,7 @@ export default function BienDetail() {
 
       {/* Hypotheses */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Hypotheses — recalcul en temps reel</h2>
-          <button className="btn-primary btn-sm" onClick={saveHyp}>{saved ? 'Sauvegarde !' : 'Sauvegarder'}</button>
-        </div>
+        <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151', marginBottom: 14 }}>Hypotheses — recalcul en temps reel</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
           <div>
             <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Loyer mensuel (EUR)</div>
@@ -252,16 +286,14 @@ export default function BienDetail() {
           </div>
         </div>
         <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-          Prix revente aujourd hui = valeur marche actuelle. L appreciation annuelle s applique ensuite sur cette base.
+          Cliquez "Sauvegarder tout" en haut pour conserver toutes vos hypotheses.
         </p>
       </div>
 
       {/* LMNP */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151', flex: 1 }}>
-            LMNP Reel simplifie — LIRR net d impots
-          </h2>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151', flex: 1 }}>LMNP Reel simplifie — LIRR net d impots</h2>
           <div style={{ background: lmnpResult?.lirrNet != null ? (lmnpResult.lirrNet >= effSettings.lirrCible ? '#f0fdf4' : '#fef2f2') : '#f9fafb', borderRadius: 8, padding: '6px 16px', textAlign: 'center', minWidth: 90 }}>
             <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 20, color: lmnpResult?.lirrNet != null ? (lmnpResult.lirrNet >= effSettings.lirrCible ? '#15803d' : '#b91c1c') : '#9ca3af' }}>
               {fmt.pct(lmnpResult?.lirrNet)}
@@ -282,51 +314,25 @@ export default function BienDetail() {
               {[0, 11, 30, 41, 45].map(t => <option key={t} value={t}>{t}%</option>)}
             </select>
           </div>
-          <div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Duree detention (ans)</div>
-            <input type="number" value={lmnp.horizon} min={1} max={30}
-              onChange={e => updLmnp({ horizon: +e.target.value || 10 })}
-              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Mobilier (EUR)</div>
-            <input type="number" value={lmnp.mobilier}
-              onChange={e => updLmnp({ mobilier: +e.target.value || 0 })}
-              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Taxe fonciere (EUR/an)</div>
-            <input type="number" value={lmnp.taxeFonciere}
-              onChange={e => updLmnp({ taxeFonciere: +e.target.value || 0 })}
-              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Amort. bien (ans)</div>
-            <input type="number" value={lmnp.dureeAmortBien}
-              onChange={e => updLmnp({ dureeAmortBien: +e.target.value || 30 })}
-              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Amort. travaux (ans)</div>
-            <input type="number" value={lmnp.dureeAmortTrav}
-              onChange={e => updLmnp({ dureeAmortTrav: +e.target.value || 10 })}
-              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Frais gestion (%)</div>
-            <input type="number" value={lmnp.fraisGestion}
-              onChange={e => updLmnp({ fraisGestion: +e.target.value || 8 })}
-              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-          </div>
-          <div>
-            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Assurance (EUR/an)</div>
-            <input type="number" value={lmnp.assurance}
-              onChange={e => updLmnp({ assurance: +e.target.value || 0 })}
-              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-          </div>
+          {[
+            ['Duree detention (ans)', lmnp.horizon, v => updLmnp({ horizon: +v || 10 }), { min: 1, max: 30 }],
+            ['Mobilier (EUR)', lmnp.mobilier, v => updLmnp({ mobilier: +v || 0 })],
+            ['Taxe fonciere (EUR/an)', lmnp.taxeFonciere, v => updLmnp({ taxeFonciere: +v || 0 })],
+            ['Amort. bien (ans)', lmnp.dureeAmortBien, v => updLmnp({ dureeAmortBien: +v || 30 })],
+            ['Amort. travaux (ans)', lmnp.dureeAmortTrav, v => updLmnp({ dureeAmortTrav: +v || 10 })],
+            ['Frais gestion (%)', lmnp.fraisGestion, v => updLmnp({ fraisGestion: +v || 8 })],
+            ['Assurance (EUR/an)', lmnp.assurance, v => updLmnp({ assurance: +v || 0 })],
+          ].map(([label, val, onChange, opts = {}]) => (
+            <div key={label}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>{label}</div>
+              <input type="number" value={val ?? ''} onChange={e => onChange(e.target.value)}
+                min={opts.min} max={opts.max}
+                style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+            </div>
+          ))}
         </div>
 
-        {lmnpResult && (
+        {lmnpResult ? (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
               {[
@@ -342,7 +348,7 @@ export default function BienDetail() {
               ))}
             </div>
             <div style={{ background: '#f0fdf4', borderRadius: 7, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#15803d' }}>
-              Abattement IR : {lmnpResult.pv.abatIR}% · Abattement PS : {Math.round(lmnpResult.pv.abatPS || 0)}% apres {lmnp.horizon} ans de detention · Prix de revente dans {lmnp.horizon} ans : {fmt.euro(lmnpResult.prixVente)}
+              Abattement IR : {lmnpResult.pv.abatIR}% · Abattement PS : {Math.round(lmnpResult.pv.abatPS || 0)}% apres {lmnp.horizon} ans · Prix de revente dans {lmnp.horizon} ans : {fmt.euro(lmnpResult.prixVente)}
             </div>
             <details>
               <summary style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: '6px 0', color: '#374151' }}>
@@ -375,9 +381,7 @@ export default function BienDetail() {
               </div>
             </details>
           </>
-        )}
-
-        {!lmnpResult && (
+        ) : (
           <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: 16 }}>
             Renseignez le loyer mensuel pour activer l analyse LMNP
           </div>
