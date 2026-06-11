@@ -149,7 +149,12 @@ export default function BienDetail() {
   // LMNP utilise sa propre duree de detention (lmnp.horizon)
   const reventeForLmnp = prixRevEstAujourdhui * (1 + effSettings.appreciation / 100) ** lmnp.horizon
   const bienEffLmnp = { ...bienEff, _reventeOverride: reventeForLmnp }
-  const lmnpResult = calcLIRR_LMNP(bienEffLmnp, { ...effSettings, horizon: lmnp.horizon }, lmnp, prixRevEstAujourdhui)
+  const lmnpResult = calcLIRR_LMNP(
+  { ...bienEff, _reventeOverride: null },
+  effSettings,
+  lmnp,
+  prixRevEstAujourdhui
+)
 
   const inp = (label, val, onChange, opts = {}) => (
     <div>
