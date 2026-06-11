@@ -1,4 +1,3 @@
-// Distance haversine en metres
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -7,53 +6,47 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 }
 
-// Score de pertinence d un comparable
 function scoreComp(comp, bien, settings) {
   let score = 100
 
-  // Surface — penalite progressive
   if (bien.surface && comp.surface) {
     const diff = Math.abs(comp.surface - bien.surface) / bien.surface * 100
-    if (diff > settings.compsSurfPct) return 0  // hors tolerance
+    if (diff > settings.compsSurfPct) return 0
     score -= diff * 0.8
   }
 
-  // Distance — bonus/malus
   if (bien.latitude && bien.longitude && comp.latitude && comp.longitude) {
     const dist = haversine(bien.latitude, bien.longitude, comp.latitude, comp.longitude)
     comp._dist = dist
-    if (dist < 200) score += 20
-    else if (dist < 500) score += 10
+    if (dist < 200)       score += 20
+    else if (dist < 500)  score += 10
     else if (dist > 1500) score -= 20
     else if (dist > 2500) return 0
   } else if (bien.rue && comp.rue) {
-    // Meme rue = bonus
     if (comp.rue.toUpperCase().includes(bien.rue.toUpperCase()) ||
         bien.rue.toUpperCase().includes(comp.rue.toUpperCase())) {
       score += 25
     }
   }
 
-  // Etage — penalite si ecart important (>= 3 etages)
+  // Etage — exclusion si ecart > 2 etages
   const etageB = bien.etage != null ? parseInt(bien.etage) : null
   const etageC = comp.etage != null ? parseInt(comp.etage) : null
   if (etageB != null && etageC != null && !isNaN(etageB) && !isNaN(etageC)) {
     const diffEtage = Math.abs(etageC - etageB)
-    if (diffEtage >= 3) score -= diffEtage * 4
-    else if (diffEtage <= 1) score += 5  // meme niveau = bonus
+    if (diffEtage > 2) return 0   // exclu — trop different
+    else if (diffEtage <= 1) score += 10
   }
 
-  // Pieces — penalite si ecart
   if (bien.pieces && comp.pieces) {
     const diffP = Math.abs(comp.pieces - bien.pieces)
     if (diffP > 2) score -= 15
     else if (diffP <= 1) score += 5
   }
 
-  // Anciennete — preferer les recents
   if (comp.date_mutation) {
     const mois = (new Date() - new Date(comp.date_mutation)) / (1000 * 60 * 60 * 24 * 30)
-    if (mois < 6) score += 10
+    if (mois < 6)  score += 10
     else if (mois > 18) score -= 10
   }
 
