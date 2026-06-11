@@ -1,104 +1,75 @@
-// ── Algorithme de sélection et scoring des comparables ──────────────────
-// Score sur 100 : géographie (40%) + surface (25%) + récence (20%) + pièces (15%)
-
-export function haversine(lat1, lng1, lat2, lng2) {
+// Distance haversine en metres
+function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000
-  const d = n => n * Math.PI / 180
-  const a = Math.sin(d(lat2 - lat1) / 2) ** 2
-    + Math.cos(d(lat1)) * Math.cos(d(lat2)) * Math.sin(d(lng2 - lng1) / 2) ** 2
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLon = (lon2 - lon1) * Math.PI / 180
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
 }
 
-export function scoreComp(comp, bien) {
-  let score = 0
+// Score de pertinence d un comparable
+function scoreComp(comp, bien, settings) {
+  let score = 100
 
-  // ── 1. Géographie (40 pts) ──────────────────────────────────────────
+  // Surface — penalite progressive
+  if (bien.surface && comp.surface) {
+    const diff = Math.abs(comp.surface - bien.surface) / bien.surface * 100
+    if (diff > settings.compsSurfPct) return 0  // hors tolerance
+    score -= diff * 0.8
+  }
+
+  // Distance — bonus/malus
   if (bien.latitude && bien.longitude && comp.latitude && comp.longitude) {
     const dist = haversine(bien.latitude, bien.longitude, comp.latitude, comp.longitude)
-    if      (dist < 50)   score += 40
-    else if (dist < 100)  score += 34
-    else if (dist < 200)  score += 27
-    else if (dist < 400)  score += 20
-    else if (dist < 700)  score += 12
-    else if (dist < 1000) score += 5
-    // > 1000m : 0
-  } else {
-    // Fallback : correspondance rue
-    const bRue = (bien.rue || '').toUpperCase().trim()
-    const cRue = (comp.rue || '').toUpperCase().trim()
-    if (bRue && cRue && (bRue === cRue || bRue.includes(cRue) || cRue.includes(bRue))) {
-      score += 30
-    } else if (comp.code_postal === bien.code_postal) {
-      score += 10
+    comp._dist = dist
+    if (dist < 200) score += 20
+    else if (dist < 500) score += 10
+    else if (dist > 1500) score -= 20
+    else if (dist > 2500) return 0
+  } else if (bien.rue && comp.rue) {
+    // Meme rue = bonus
+    if (comp.rue.toUpperCase().includes(bien.rue.toUpperCase()) ||
+        bien.rue.toUpperCase().includes(comp.rue.toUpperCase())) {
+      score += 25
     }
   }
 
-  // ── 2. Surface (25 pts) ────────────────────────────────────────────
-  if (bien.surface && comp.surface) {
-    const diff = Math.abs(comp.surface - bien.surface) / bien.surface
-    if      (diff < 0.05) score += 25
-    else if (diff < 0.10) score += 20
-    else if (diff < 0.15) score += 16
-    else if (diff < 0.20) score += 12
-    else if (diff < 0.30) score += 8
-    else if (diff < 0.40) score += 4
-    // > 40% : 0
+  // Etage — penalite si ecart important (>= 3 etages)
+  const etageB = bien.etage != null ? parseInt(bien.etage) : null
+  const etageC = comp.etage != null ? parseInt(comp.etage) : null
+  if (etageB != null && etageC != null && !isNaN(etageB) && !isNaN(etageC)) {
+    const diffEtage = Math.abs(etageC - etageB)
+    if (diffEtage >= 3) score -= diffEtage * 4
+    else if (diffEtage <= 1) score += 5  // meme niveau = bonus
   }
 
-  // ── 3. Récence (20 pts) ────────────────────────────────────────────
-  const jours = (Date.now() - new Date(comp.date_mutation).getTime()) / 86400000
-  if      (jours < 90)  score += 20
-  else if (jours < 180) score += 17
-  else if (jours < 365) score += 13
-  else if (jours < 548) score += 9
-  else if (jours < 730) score += 5
-  // > 730j : 0
-
-  // ── 4. Nombre de pièces (15 pts) ───────────────────────────────────
+  // Pieces — penalite si ecart
   if (bien.pieces && comp.pieces) {
-    const diff = Math.abs(comp.pieces - bien.pieces)
-    if      (diff === 0) score += 15
-    else if (diff === 1) score += 8
-    else if (diff === 2) score += 3
-    // > 2 : 0
-  } else {
-    score += 7 // Inconnu : moitié des points
+    const diffP = Math.abs(comp.pieces - bien.pieces)
+    if (diffP > 2) score -= 15
+    else if (diffP <= 1) score += 5
   }
 
-  return Math.round(score)
+  // Anciennete — preferer les recents
+  if (comp.date_mutation) {
+    const mois = (new Date() - new Date(comp.date_mutation)) / (1000 * 60 * 60 * 24 * 30)
+    if (mois < 6) score += 10
+    else if (mois > 18) score -= 10
+  }
+
+  return Math.max(0, Math.round(score))
 }
 
-// Filtre et trie les comparables par pertinence
-export function selectComps(allComps, bien, settings, maxResults = 80) {
-  const cutoff = new Date()
-  cutoff.setMonth(cutoff.getMonth() - settings.compsMois)
-  const cStr = cutoff.toISOString().slice(0, 10)
-
-  const surfMin = (bien.surface || 30) * (1 - settings.compsSurfPct / 100)
-  const surfMax = (bien.surface || 30) * (1 + settings.compsSurfPct / 100)
-
-  // Pré-filtrage
-  const candidates = allComps.filter(c => {
-    if (c.date_mutation < cStr) return false
-    if (c.surface < surfMin || c.surface > surfMax) return false
-    // Exclure si code postal trop différent (sauf si on a les coords)
-    if (!bien.latitude && c.code_postal !== bien.code_postal) return false
-    return true
-  })
-
-  // Scoring et tri
-  const scored = candidates
-    .map(c => ({ ...c, _score: scoreComp(c, bien) }))
-    .filter(c => c._score >= 15) // Seuil minimum de pertinence
+export function selectComps(rawComps, bien, settings, maxResults = 50) {
+  return rawComps
+    .map(c => ({ ...c, _score: scoreComp(c, bien, settings) }))
+    .filter(c => c._score > 20)
     .sort((a, b) => b._score - a._score)
     .slice(0, maxResults)
-
-  return scored
 }
 
-// Statistiques sur un ensemble de comparables
 export function calcCompsStats(comps) {
-  if (!comps.length) return null
+  if (!comps || !comps.length) return null
   const pm2s = comps.map(c => c.prix_m2).filter(Boolean).sort((a, b) => a - b)
   if (!pm2s.length) return null
   const n = pm2s.length
@@ -112,12 +83,10 @@ export function calcCompsStats(comps) {
     q3:     q(0.75),
     avg:    Math.round(pm2s.reduce((a, b) => a + b, 0) / n),
     pm2s,
-    // Écart-type pour détecter les outliers
-    stddev: Math.sqrt(pm2s.reduce((a, b) => a + (b - pm2s[Math.floor(n / 2)]) ** 2, 0) / n)
+    stddev: Math.sqrt(pm2s.reduce((a, b) => a + (b - q(0.50)) ** 2, 0) / n)
   }
 }
 
-// Construit histogramme
 export function buildHistogram(pm2s, askPm2) {
   if (!pm2s?.length) return []
   const mn = Math.min(...pm2s), mx = Math.max(...pm2s)
