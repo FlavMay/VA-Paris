@@ -45,12 +45,13 @@ export function calcMetrics(bienRaw, s) {
 
   // Prix de revente = ARV Q3 des comparables × (1 + appreciation)^horizon
   // Si pas de comp_stats, fallback sur prix achat × appreciation
-  const arvBase = bien.comp_stats?.q3
+const arvBase = bien.comp_stats?.q3
     ? bien.comp_stats.q3 * (bien.surface || 0)
     : bien.prix
-  // Premium etage / vis-a-vis si renseigne (0 par defaut)
   const premiumRevente = bien.premiumRevente || 0
-  const rev = (arvBase * (1 + premiumRevente / 100)) * (1 + s.appreciation / 100) ** s.horizon
+  const rev = bien.prixRevente
+    ? bien.prixRevente
+    : (arvBase * (1 + premiumRevente / 100)) * (1 + s.appreciation / 100) ** s.horizon
 
   const cred = tot * s.creditPct / 100
   const app = tot - cred
