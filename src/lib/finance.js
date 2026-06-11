@@ -198,8 +198,6 @@ export function calcLIRR_LMNP(bienRaw, s, lmnp, prixReventeAujourdhui) {
   if (!bien?.prix) return null
 
   const horizon = lmnp.horizon || s.horizon
-
-  // Recalculer m AVEC la bonne duree de detention lmnp.horizon
   const sAvecHorizon = { ...s, horizon }
   const bienPourMetrics = { ...bien, _reventeOverride: null }
   const m = calcMetrics(bienPourMetrics, sAvecHorizon)
@@ -208,7 +206,6 @@ export function calcLIRR_LMNP(bienRaw, s, lmnp, prixReventeAujourdhui) {
   const lmnpData = calcLMNP(bien, m, sAvecHorizon, lmnp)
   if (!lmnpData) return null
 
-  // Prix de revente dans lmnp.horizon ans
   const prixRevBase = prixReventeAujourdhui || (
     bien.comp_stats?.q3
       ? bien.comp_stats.q3 * (bien.surface || 0) * (1 + (bien.premiumRevente || 0) / 100)
@@ -221,15 +218,36 @@ export function calcLIRR_LMNP(bienRaw, s, lmnp, prixReventeAujourdhui) {
   const pv = lmnpData.pvCalc(prixVente, prixAcquis, horizon)
 
   const fraisVente = prixVente * sAvecHorizon.fraisVente / 100
-  const produitNet = prixVente - cr - fraisVente - pv.impotPV
 
-  // Flows : apport negatif, puis CF nets annuels, derniere annee + produit net revente
+  // Produit net revente AVANT impot PV = ce que le vendeur recoit apres remboursement credit et frais agent
+  const produitNetAvantImpotPV = prixVente - cr - fraisVente
+
+  // Produit net revente APRES impot PV = ce qui reste vraiment
+  const produitNetApresImpotPV = produitNetAvantImpotPV - pv.impotPV
+
+  // Flows pour le LIRR : on deduit l impot PV du flux final
   const flows = [
     -m.apport,
     ...lmnpData.annees.map((a, i) =>
-      i === horizon - 1 ? a.cfNet + produitNet : a.cfNet
+      i === horizon - 1 ? a.cfNet + produitNetApresImpotPV : a.cfNet
     )
   ]
+
+  const lirrNet = calcIRR(flows)
+
+  return {
+    lirrNet,
+    lirrBrut: m.lirr,
+    impotRevenusCumules: lmnpData.annees[horizon - 1]?.impotCumul || 0,
+    pv,
+    prixVente:               Math.round(prixVente),
+    capitalRestant:          Math.round(cr),
+    fraisVente:              Math.round(fraisVente),
+    produitNetAvantImpotPV:  Math.round(produitNetAvantImpotPV),
+    produitNetApresImpotPV:  Math.round(produitNetApresImpotPV),
+    annees: lmnpData.annees,
+  }
+}
 
   const lirrNet = calcIRR(flows)
 
