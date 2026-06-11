@@ -24,58 +24,43 @@ function normBien(bien) {
   if (!bien) return bien
   return {
     ...bien,
-    loyerMensuel:  bien.loyerMensuel  ?? bien.loyer_mensuel  ?? null,
-    travauxManuel: bien.travauxManuel ?? bien.travaux_manuel ?? null,
+    loyerMensuel:   bien.loyerMensuel   ?? bien.loyer_mensuel   ?? null,
+    travauxManuel:  bien.travauxManuel  ?? bien.travaux_manuel  ?? null,
     arrondissement: bien.arrondissement ?? null,
-    etage: bien.etage ?? null,
+    etage:          bien.etage          ?? null,
   }
 }
 
-// ─── LMNP REEL SIMPLIFIE ──────────────────────────────────────────────────────
-// Calcule l impot annuel LMNP reel et le report de deficit BIC
-// Retourne les flux nets d impots sur toute la duree de detention
 export function calcLMNP(bien, m, s, lmnp) {
   if (!bien?.prix || !m) return null
-
   const loyer = bien.loyerMensuel || 0
   if (!loyer) return null
 
-  const horizon     = lmnp.horizon || s.horizon
-  const tmi         = (lmnp.tmi || 0) / 100
-  const ps          = 0.172  // prelevements sociaux fixes
-  const tauxTotal   = tmi + ps
+  const horizon   = lmnp.horizon || s.horizon
+  const tmi       = (lmnp.tmi || 0) / 100
+  const ps        = 0.172
+  const tauxTotal = tmi + ps
 
-  // Bases amortissables
-  const prixHFN     = bien.prix / 1.08  // hors frais notaire
-  const mobilier    = lmnp.mobilier || 0
-  const travaux     = m.travaux || 0
+  const prixHFN = bien.prix / 1.08
+  const mobilier = lmnp.mobilier || 0
+  const travaux  = m.travaux || 0
 
-  // Amortissements annuels
-  const amortBien   = prixHFN / (lmnp.dureeAmortBien || 30)
-  const amortMob    = mobilier > 0 ? mobilier / (lmnp.dureeAmortMob || 7) : 0
-  const amortTrav   = travaux > 0 ? travaux / (lmnp.dureeAmortTrav || 10) : 0
+  const amortBien = prixHFN / (lmnp.dureeAmortBien || 30)
+  const amortMob  = mobilier > 0 ? mobilier / (lmnp.dureeAmortMob || 7) : 0
+  const amortTrav = travaux  > 0 ? travaux  / (lmnp.dureeAmortTrav || 10) : 0
 
-  // Charges deductibles annuelles
-  const lAn         = loyer * (12 - s.vacanceMois)
-  const interets    = Array.from({ length: horizon }, (_, yr) => {
-    // Interets = mensualite * 12 - remboursement capital
-    const crDebut = calcCapitalRestant(m.credit, s.tauxCredit, s.dureeCredit, yr)
-    const crFin   = calcCapitalRestant(m.credit, s.tauxCredit, s.dureeCredit, yr + 1)
-    return Math.max(0, crDebut - crFin - m.mensualite * 12 + (crDebut - crFin))
-  })
-  // Simplification : interets = mensualite * 12 - (capital rembourse)
-  const interetsAn  = Array.from({ length: horizon }, (_, yr) => {
+  const lAn            = loyer * (12 - s.vacanceMois)
+  const chargesGestion = lAn * (lmnp.fraisGestion || 8) / 100
+  const assurance      = lmnp.assurance    || 0
+  const taxeFonciere   = lmnp.taxeFonciere || 0
+  const chargesCopr    = lAn * s.chargesPct / 100
+
+  const interetsAn = Array.from({ length: horizon }, (_, yr) => {
     const crDebut = yr === 0 ? m.credit : calcCapitalRestant(m.credit, s.tauxCredit, s.dureeCredit, yr)
     const crFin   = calcCapitalRestant(m.credit, s.tauxCredit, s.dureeCredit, yr + 1)
     return Math.max(0, m.mensualite * 12 - (crDebut - crFin))
   })
 
-  const chargesGestion  = lAn * (lmnp.fraisGestion || 8) / 100
-  const assurance       = lmnp.assurance || 500
-  const taxeFonciere    = lmnp.taxeFonciere || 0
-  const chargesCopr     = lAn * s.chargesPct / 100
-
-  // Simulation annee par annee
   let reportDeficit = 0
   const annees = []
 
@@ -85,21 +70,16 @@ export function calcLMNP(bien, m, s, lmnp) {
     const amortTravAn = yr < (lmnp.dureeAmortTrav  || 10) ? amortTrav : 0
     const totalAmort  = amortBienAn + amortMobAn + amortTravAn
 
-    const chargesDeductibles = interetsAn[yr] + chargesGestion + assurance + taxeFonciere + chargesCopr
+    const chargesDeductibles   = interetsAn[yr] + chargesGestion + assurance + taxeFonciere + chargesCopr
     const resultBrutAvantAmort = lAn - chargesDeductibles
 
-    // Resultat BIC = loyers - charges - amortissements (max amort = resultat brut, pas de deficit par amort)
     const amortUtilisable = Math.min(totalAmort, Math.max(0, resultBrutAvantAmort + reportDeficit))
-    const resultBIC = resultBrutAvantAmort - amortUtilisable
+    const resultBIC       = resultBrutAvantAmort - amortUtilisable
 
-    // Report deficit (hors amortissement)
     const newDeficit = Math.max(0, -resultBrutAvantAmort)
     reportDeficit = Math.max(0, reportDeficit - Math.max(0, resultBrutAvantAmort)) + newDeficit
 
-    // Impot
-    const impot = resultBIC > 0 ? resultBIC * tauxTotal : 0
-
-    // Cashflow net d impots
+    const impot  = resultBIC > 0 ? resultBIC * tauxTotal : 0
     const cfBrut = lAn - chargesCopr - m.mensualite * 12
     const cfNet  = cfBrut - impot
 
@@ -107,50 +87,49 @@ export function calcLMNP(bien, m, s, lmnp) {
       yr: yr + 1,
       lAn,
       chargesDeductibles: Math.round(chargesDeductibles),
-      totalAmort: Math.round(totalAmort),
-      amortUtilisable: Math.round(amortUtilisable),
-      resultBIC: Math.round(resultBIC),
-      reportDeficit: Math.round(reportDeficit),
-      impot: Math.round(impot),
-      cfBrut: Math.round(cfBrut),
-      cfNet: Math.round(cfNet),
-      impotCumul: 0,
+      totalAmort:         Math.round(totalAmort),
+      amortUtilisable:    Math.round(amortUtilisable),
+      resultBIC:          Math.round(resultBIC),
+      reportDeficit:      Math.round(reportDeficit),
+      impot:              Math.round(impot),
+      cfBrut:             Math.round(cfBrut),
+      cfNet:              Math.round(cfNet),
+      impotCumul:         0,
     })
   }
 
-  // Cumul impots
   let cumul = 0
   annees.forEach(a => { cumul += a.impot; a.impotCumul = cumul })
 
-  // Plus-value a la revente (regime particuliers)
-  const pvCalc = (prixVente, prixAcquis, horizon) => {
+  const pvCalc = (prixVente, prixAcquis, hor) => {
     const pvBrute = Math.max(0, prixVente - prixAcquis)
-    if (pvBrute === 0) return { pvBrute: 0, pvIR: 0, pvPS: 0, impotPV: 0 }
+    if (pvBrute === 0) return { pvBrute: 0, impotPV: 0, abatIR: 0, abatPS: 0 }
 
-    // Abattement IR : 0% < 6 ans, 6%/an de 6 a 21 ans, 4% 22e an, 100% >= 22 ans
     let abatIR = 0
-    if (horizon >= 22) abatIR = 100
-    else if (horizon > 5) abatIR = Math.min(100, (horizon - 5) * 6)
-    if (horizon === 22) abatIR = 100
+    if (hor >= 22)     abatIR = 100
+    else if (hor > 5)  abatIR = Math.min(100, (hor - 5) * 6)
 
-    // Abattement PS : 0% < 6 ans, 1.65%/an de 6 a 21 ans, 1.60% 22e, 9%/an de 23 a 30 ans, 100% >= 30 ans
     let abatPS = 0
-    if (horizon >= 30) abatPS = 100
-    else if (horizon >= 23) abatPS = Math.min(100, (horizon - 22) * 9 + 28)
-    else if (horizon === 22) abatPS = 28
-    else if (horizon > 5) abatPS = (horizon - 5) * 1.65
+    if (hor >= 30)      abatPS = 100
+    else if (hor >= 23) abatPS = Math.min(100, (hor - 22) * 9 + 28)
+    else if (hor === 22) abatPS = 28
+    else if (hor > 5)   abatPS = (hor - 5) * 1.65
 
-    const pvIR = pvBrute * (1 - abatIR / 100)
-    const pvPS = pvBrute * (1 - abatPS / 100)
+    const pvIR    = pvBrute * (1 - abatIR / 100)
+    const pvPS    = pvBrute * (1 - abatPS / 100)
     const impotPV = pvIR * 0.19 + pvPS * 0.172
 
-    return { pvBrute: Math.round(pvBrute), pvIR: Math.round(pvIR), pvPS: Math.round(pvPS), impotPV: Math.round(impotPV), abatIR, abatPS }
+    return {
+      pvBrute: Math.round(pvBrute),
+      impotPV: Math.round(impotPV),
+      abatIR,
+      abatPS: Math.round(abatPS * 10) / 10,
+    }
   }
 
   return { annees, pvCalc }
 }
 
-// ─── METRIQUES BRUTES (inchangees) ───────────────────────────────────────────
 export function calcMetrics(bienRaw, s) {
   const bien = normBien(bienRaw)
   if (!bien?.prix) return null
@@ -168,16 +147,15 @@ export function calcMetrics(bienRaw, s) {
       ? bien.comp_stats.q3 * (bien.surface || 0) * (1 + (bien.premiumRevente || 0) / 100)
       : bien.prix
   )
-  const rev = prixRevBase * (1 + s.appreciation / 100) ** s.horizon
-
+  const rev  = prixRevBase * (1 + s.appreciation / 100) ** s.horizon
   const cred = tot * s.creditPct / 100
-  const app = tot - cred
-  const M = calcMensualite(cred, s.tauxCredit, s.dureeCredit)
-  const lAn = loyer * (12 - s.vacanceMois)
-  const ch = lAn * s.chargesPct / 100
-  const cf = lAn - ch - M * 12
-  const cr = calcCapitalRestant(cred, s.tauxCredit, s.dureeCredit, s.horizon)
-  const nr = rev * (1 - s.fraisVente / 100) - cr
+  const app  = tot - cred
+  const M    = calcMensualite(cred, s.tauxCredit, s.dureeCredit)
+  const lAn  = loyer * (12 - s.vacanceMois)
+  const ch   = lAn * s.chargesPct / 100
+  const cf   = lAn - ch - M * 12
+  const cr   = calcCapitalRestant(cred, s.tauxCredit, s.dureeCredit, s.horizon)
+  const nr   = rev * (1 - s.fraisVente / 100) - cr
   const flows = [-app, ...Array.from({ length: s.horizon }, (_, i) => i === s.horizon - 1 ? cf + nr : cf)]
 
   return {
@@ -192,15 +170,13 @@ export function calcMetrics(bienRaw, s) {
   }
 }
 
-// ─── LIRR NET D IMPOTS LMNP ──────────────────────────────────────────────────
 export function calcLIRR_LMNP(bienRaw, s, lmnp, prixReventeAujourdhui) {
   const bien = normBien(bienRaw)
   if (!bien?.prix) return null
 
-  const horizon = lmnp.horizon || s.horizon
+  const horizon      = lmnp.horizon || s.horizon
   const sAvecHorizon = { ...s, horizon }
-  const bienPourMetrics = { ...bien, _reventeOverride: null }
-  const m = calcMetrics(bienPourMetrics, sAvecHorizon)
+  const m            = calcMetrics({ ...bien, _reventeOverride: null }, sAvecHorizon)
   if (!m) return null
 
   const lmnpData = calcLMNP(bien, m, sAvecHorizon, lmnp)
@@ -212,20 +188,14 @@ export function calcLIRR_LMNP(bienRaw, s, lmnp, prixReventeAujourdhui) {
       : bien.prix
   )
   const prixVente = prixRevBase * (1 + s.appreciation / 100) ** horizon
-  const cr = calcCapitalRestant(m.credit, sAvecHorizon.tauxCredit, sAvecHorizon.dureeCredit, horizon)
-
+  const cr        = calcCapitalRestant(m.credit, sAvecHorizon.tauxCredit, sAvecHorizon.dureeCredit, horizon)
   const prixAcquis = bien.prix + m.fraisNotaire + (lmnp.mobilier || 0)
-  const pv = lmnpData.pvCalc(prixVente, prixAcquis, horizon)
-
+  const pv         = lmnpData.pvCalc(prixVente, prixAcquis, horizon)
   const fraisVente = prixVente * sAvecHorizon.fraisVente / 100
 
-  // Produit net revente AVANT impot PV = ce que le vendeur recoit apres remboursement credit et frais agent
   const produitNetAvantImpotPV = prixVente - cr - fraisVente
-
-  // Produit net revente APRES impot PV = ce qui reste vraiment
   const produitNetApresImpotPV = produitNetAvantImpotPV - pv.impotPV
 
-  // Flows pour le LIRR : on deduit l impot PV du flux final
   const flows = [
     -m.apport,
     ...lmnpData.annees.map((a, i) =>
@@ -233,45 +203,17 @@ export function calcLIRR_LMNP(bienRaw, s, lmnp, prixReventeAujourdhui) {
     )
   ]
 
-  const lirrNet = calcIRR(flows)
-
   return {
-    lirrNet,
-    lirrBrut: m.lirr,
-    impotRevenusCumules: lmnpData.annees[horizon - 1]?.impotCumul || 0,
+    lirrNet:               calcIRR(flows),
+    lirrBrut:              m.lirr,
+    impotRevenusCumules:   lmnpData.annees[horizon - 1]?.impotCumul || 0,
     pv,
-    prixVente:               Math.round(prixVente),
-    capitalRestant:          Math.round(cr),
-    fraisVente:              Math.round(fraisVente),
-    produitNetAvantImpotPV:  Math.round(produitNetAvantImpotPV),
-    produitNetApresImpotPV:  Math.round(produitNetApresImpotPV),
-    annees: lmnpData.annees,
-  }
-}
-
-  const lirrNet = calcIRR(flows)
-
-  return {
-    lirrNet,
-    lirrBrut: m.lirr,
-    impotTotal: lmnpData.annees[horizon - 1]?.impotCumul || 0,
-    pv,
-    prixVente: Math.round(prixVente),
-    produitNet: Math.round(produitNet),
-    annees: lmnpData.annees,
-  }
-}
-
-  const lirrNet = calcIRR(flows)
-
-  return {
-    lirrNet,
-    lirrBrut: m.lirr,
-    impotTotal: lmnpData.annees[horizon - 1]?.impotCumul || 0,
-    pv,
-    prixVente: Math.round(prixVente),
-    produitNet: Math.round(produitNet),
-    annees: lmnpData.annees,
+    prixVente:             Math.round(prixVente),
+    capitalRestant:        Math.round(cr),
+    fraisVente:            Math.round(fraisVente),
+    produitNetAvantImpotPV: Math.round(produitNetAvantImpotPV),
+    produitNetApresImpotPV: Math.round(produitNetApresImpotPV),
+    annees:                lmnpData.annees,
   }
 }
 
