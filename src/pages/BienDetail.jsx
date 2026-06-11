@@ -53,12 +53,7 @@ export default function BienDetail() {
           max_tokens: 300,
           messages: [{
             role: 'user',
-            content: `Estime le loyer mensuel nu (hors charges) pour cet appartement parisien.
-
-Bien: ${bien.surface || '?'}m2, ${bien.pieces || '?'} pieces, ${bien.arrondissement || bien.code_postal || 'Paris'} arr., etat: ${ETAT_LABELS[bien.etat] || bien.etat || 'inconnu'}
-Adresse: ${bien.adresse || bien.rue || 'Paris'}
-
-Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "explication": "1 phrase"}`
+            content: `Estime le loyer mensuel nu (hors charges) pour cet appartement parisien. Bien: ${bien.surface || '?'}m2, ${bien.pieces || '?'} pieces, ${bien.arrondissement || bien.code_postal || 'Paris'} arr., etat: ${ETAT_LABELS[bien.etat] || bien.etat || 'inconnu'}. Adresse: ${bien.adresse || bien.rue || 'Paris'}. Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "explication": "1 phrase"}`
           }]
         })
       })
@@ -95,43 +90,33 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
   return (
     <div style={{ maxWidth: 820, margin: '0 auto' }}>
 
-      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <button className="btn-ghost btn-sm" onClick={() => nav('/dashboard')}>← Retour</button>
+        <button className="btn-ghost btn-sm" onClick={() => nav('/dashboard')}>Retour</button>
         <h1 style={{ flex: 1, fontSize: 18, fontWeight: 700 }}>{bien.titre || 'Annonce'}</h1>
         <div style={{ width: 38, height: 38, borderRadius: 9, background: scB(sc), color: scC(sc), display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16 }}>{sc}</div>
         <button className="btn-danger btn-sm" onClick={deleteBien}>Supprimer</button>
       </div>
 
-      {/* Loyer manquant — bandeau */}
       {!loyer && (
         <div className="card" style={{ padding: 16, marginBottom: 14, background: '#fffbeb', border: '1px solid #fcd34d' }}>
           <p style={{ fontSize: 13, fontWeight: 600, color: '#b45309', marginBottom: 10 }}>
-            Loyer mensuel non renseigne — les metriques financieres ne peuvent pas etre calculees.
+            Loyer mensuel non renseigne
           </p>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="number"
-              value={loyerVal}
-              onChange={e => setLoyerVal(e.target.value)}
-              placeholder="Ex: 1800"
-              style={{ width: 140, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
-            />
-            <button className="btn-primary btn-sm" onClick={saveLoyer} disabled={!loyerVal}>
-              Enregistrer le loyer
-            </button>
+            <input type="number" value={loyerVal} onChange={e => setLoyerVal(e.target.value)} placeholder="Ex: 1800"
+              style={{ width: 140, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+            <button className="btn-primary btn-sm" onClick={saveLoyer} disabled={!loyerVal}>Enregistrer</button>
             <button className="btn-ghost btn-sm" onClick={estimateLoyer} disabled={estimating}>
-              {estimating ? 'Estimation...' : 'Estimer avec l IA'}
+              {estimating ? 'Estimation...' : 'Estimer avec IA'}
             </button>
           </div>
         </div>
       )}
 
-      {/* Loyer present — affichage avec bouton modifier */}
       {loyer && (
         <div className="card" style={{ padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 13, color: '#6b7280' }}>
-            Loyer mensuel cible : <strong style={{ color: '#111827' }}>{loyer.toLocaleString('fr-FR')} EUR/mois</strong>
+            Loyer mensuel : <strong style={{ color: '#111827' }}>{loyer.toLocaleString('fr-FR')} EUR/mois</strong>
           </span>
           {editLoyer ? (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -151,10 +136,9 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
         </div>
       )}
 
-      {/* LIRR bar */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>LIRR levérisé · {settings.horizon} ans · {settings.creditPct}% crédit @ {settings.tauxCredit}%</span>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>LIRR · {settings.horizon} ans · {settings.creditPct}% credit @ {settings.tauxCredit}%</span>
           <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 26, color: loyer ? barC : '#9ca3af' }}>{fmt.pct(m?.lirr)}</span>
         </div>
         <div style={{ height: 10, background: '#e5e7eb', borderRadius: 5, overflow: 'hidden', marginBottom: 4 }}>
@@ -177,7 +161,6 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
         </div>
       </div>
 
-      {/* DVF Analysis */}
       {cs && (
         <div className="card" style={{ padding: 18, marginBottom: 14 }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Analyse DVF · {cs.n} comparables</h2>
@@ -211,7 +194,6 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
             </div>
           )}
 
-          {/* Carte des comparables */}
           {cs.comps && cs.comps.length > 0 && (
             <details style={{ marginBottom: 14 }}>
               <summary style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: '6px 0', color: '#374151' }}>
@@ -221,7 +203,7 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
                     <tr>
-                      {['Date', 'Rue', 'Surf.', 'Prix/m2', 'Prix total'].map(h => (
+                      {['Date', 'Rue', 'Surf.', 'Etage', 'Prix/m2', 'Prix total'].map(h => (
                         <th key={h} style={{ padding: '7px 10px', textAlign: 'left', fontWeight: 500, color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>{h}</th>
                       ))}
                     </tr>
@@ -230,8 +212,9 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
                     {cs.comps.map((c, i) => (
                       <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f9fafb' }}>
                         <td style={{ padding: '6px 10px', color: '#6b7280' }}>{c.date_mutation}</td>
-                        <td style={{ padding: '6px 10px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.numero ? c.numero + ' ' : ''}{c.rue}</td>
+                        <td style={{ padding: '6px 10px', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.numero ? c.numero + ' ' : ''}{c.rue}</td>
                         <td style={{ padding: '6px 10px' }}>{c.surface}m2</td>
+                        <td style={{ padding: '6px 10px' }}>{c.etage != null ? c.etage : '-'}</td>
                         <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: 600 }}>{fmt.pm2(c.prix_m2)}</td>
                         <td style={{ padding: '6px 10px', fontFamily: 'monospace' }}>{fmt.euro(c.prix)}</td>
                       </tr>
@@ -263,9 +246,10 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
         </div>
       )}
 
-      {!cs && <div className="alert alert-warn" style={{ marginBottom: 14 }}>Aucune analyse DVF pour ce bien.</div>}
+      {!cs && (
+        <div className="alert alert-warn" style={{ marginBottom: 14 }}>Aucune analyse DVF pour ce bien.</div>
+      )}
 
-     {/* Hypotheses modifiables */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
         <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#374151' }}>Hypotheses de calcul</h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -290,12 +274,10 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
           ))}
         </div>
         <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-          Premium revente : ajustez en % pour tenir compte d un etage eleve, absence de vis-a-vis, orientation, etc. Ex: +5% pour un dernier etage sans vis-a-vis.
-          Le prix de revente est base sur ARV Q3 des comparables x (1 + premium) x (1 + appreciation)^horizon.
+          Premium revente : ajustez en % pour un etage eleve, absence de vis-a-vis, etc. Ex: +5%. Le prix de revente est base sur ARV Q3 des comparables x (1 + premium) x (1 + appreciation)^horizon.
         </p>
       </div>
 
-      {/* Finance blocks */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         {[
           ['ACQUISITION', [
@@ -337,20 +319,6 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
           </div>
         ))}
       </div>
-
-      {bien.url && (
-        <div style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>
-          <a href={bien.url} target="_blank" rel="noopener" style={{ color: '#6b7280' }}>{bien.url}</a>
-        </div>
-      )}
-      {bien.notes && (
-        <div style={{ padding: '10px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 13, color: '#374151', marginBottom: 12 }}>
-          {bien.notes}
-        </div>
-      )}
-    </div>
-  )
-}
 
       {bien.url && (
         <div style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>
