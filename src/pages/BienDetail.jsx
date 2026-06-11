@@ -265,6 +265,36 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
 
       {!cs && <div className="alert alert-warn" style={{ marginBottom: 14 }}>Aucune analyse DVF pour ce bien.</div>}
 
+     {/* Hypotheses modifiables */}
+      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#374151' }}>Hypotheses de calcul</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          {[
+            ['Loyer mensuel (EUR)', 'loyer_mensuel', bien.loyer_mensuel || ''],
+            ['Travaux manuel (EUR)', 'travaux_manuel', bien.travaux_manuel || ''],
+            ['Premium revente (%)', 'premiumRevente', bien.premiumRevente || 0],
+          ].map(([label, key, val]) => (
+            <div key={key}>
+              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>{label}</div>
+              <input
+                type="number"
+                defaultValue={val}
+                style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+                onBlur={async e => {
+                  const v = e.target.value === '' ? null : parseFloat(e.target.value)
+                  await supabase.from('properties').update({ [key]: v }).eq('id', id)
+                  setBien(b => ({ ...b, [key]: v }))
+                }}
+              />
+            </div>
+          ))}
+        </div>
+        <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
+          Premium revente : ajustez en % pour tenir compte d un etage eleve, absence de vis-a-vis, orientation, etc. Ex: +5% pour un dernier etage sans vis-a-vis.
+          Le prix de revente est base sur ARV Q3 des comparables x (1 + premium) x (1 + appreciation)^horizon.
+        </p>
+      </div>
+
       {/* Finance blocks */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         {[
@@ -287,6 +317,9 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
             ['CF net/an', fmt.euro(m?.cashflowAnnuel, 0), m?.cashflowAnnuel >= 0 ? '#15803d' : '#b91c1c']
           ]],
           ['SORTIE ' + settings.horizon + ' ANS', [
+            ['Base revente', cs?.q3 ? 'ARV Q3 comparables' : 'Prix achat'],
+            ['Premium revente', bien.premiumRevente ? '+' + bien.premiumRevente + '%' : '0%'],
+            ['Appreciation ' + settings.appreciation + '%/an', ''],
             ['Prix revente estime', fmt.euro(m?.revente)],
             ['Capital restant', m ? '-' + fmt.euro(m.capitalRestant, 0) : '-'],
             ['Frais vente ' + settings.fraisVente + '%', m ? '-' + fmt.euro(m.revente * settings.fraisVente / 100, 0) : '-'],
@@ -295,7 +328,7 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
         ].map(([title, rows]) => (
           <div className="card" key={title} style={{ padding: '13px 15px' }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: '#9ca3af', marginBottom: 8 }}>{title}</div>
-            {rows.map(([k, v, c]) => (
+            {rows.map(([k, v, c]) => k && (
               <div key={k} className="divider-row">
                 <span className="dk">{k}</span>
                 <span className="dv mono" style={{ color: c || '#111827' }}>{v}</span>
@@ -304,6 +337,20 @@ Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "exp
           </div>
         ))}
       </div>
+
+      {bien.url && (
+        <div style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>
+          <a href={bien.url} target="_blank" rel="noopener" style={{ color: '#6b7280' }}>{bien.url}</a>
+        </div>
+      )}
+      {bien.notes && (
+        <div style={{ padding: '10px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 13, color: '#374151', marginBottom: 12 }}>
+          {bien.notes}
+        </div>
+      )}
+    </div>
+  )
+}
 
       {bien.url && (
         <div style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>
