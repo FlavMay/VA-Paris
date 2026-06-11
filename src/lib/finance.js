@@ -20,15 +20,14 @@ export function calcCapitalRestant(P, ta, dur, ans) {
   return r ? P * (1 + r) ** m - M * ((1 + r) ** m - 1) / r : P * (1 - m / (dur * 12))
 }
 
-// Normalise un bien qui peut venir de Supabase (snake_case) ou du state local (camelCase)
 function normBien(bien) {
   if (!bien) return bien
   return {
     ...bien,
-    loyerMensuel:   bien.loyerMensuel   ?? bien.loyer_mensuel   ?? null,
-    travauxManuel:  bien.travauxManuel  ?? bien.travaux_manuel  ?? null,
-    codePostal:     bien.codePostal     ?? bien.code_postal     ?? null,
+    loyerMensuel:  bien.loyerMensuel  ?? bien.loyer_mensuel  ?? null,
+    travauxManuel: bien.travauxManuel ?? bien.travaux_manuel ?? null,
     arrondissement: bien.arrondissement ?? null,
+    etage: bien.etage ?? null,
   }
 }
 
@@ -41,18 +40,28 @@ export function calcMetrics(bienRaw, s) {
     : bien.etat === 'gros'    ? (bien.surface || 0) * s.travauxGros
     : bien.etat === 'complet' ? (bien.surface || 0) * s.travauxComplet
     : bien.etat === 'leger'   ? (bien.surface || 0) * s.travauxLeger
-    : 0  // bon, occupe, ou inconnu = 0 travaux
+    : 0
   const tot = bien.prix + fn + tr
+
+  // Prix de revente = ARV Q3 des comparables × (1 + appreciation)^horizon
+  // Si pas de comp_stats, fallback sur prix achat × appreciation
+  const arvBase = bien.comp_stats?.q3
+    ? bien.comp_stats.q3 * (bien.surface || 0)
+    : bien.prix
+  // Premium etage / vis-a-vis si renseigne (0 par defaut)
+  const premiumRevente = bien.premiumRevente || 0
+  const rev = (arvBase * (1 + premiumRevente / 100)) * (1 + s.appreciation / 100) ** s.horizon
+
   const cred = tot * s.creditPct / 100
   const app = tot - cred
   const M = calcMensualite(cred, s.tauxCredit, s.dureeCredit)
   const lAn = loyer * (12 - s.vacanceMois)
   const ch = lAn * s.chargesPct / 100
   const cf = lAn - ch - M * 12
-  const rev = bien.prix * (1 + s.appreciation / 100) ** s.horizon
   const cr = calcCapitalRestant(cred, s.tauxCredit, s.dureeCredit, s.horizon)
   const nr = rev * (1 - s.fraisVente / 100) - cr
   const flows = [-app, ...Array.from({ length: s.horizon }, (_, i) => i === s.horizon - 1 ? cf + nr : cf)]
+
   return {
     lirr: loyer ? calcIRR(flows) : null,
     apport: app, credit: cred, mensualite: M,
