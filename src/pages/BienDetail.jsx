@@ -332,24 +332,43 @@ export default function BienDetail() {
           ))}
         </div>
 
-        {lmnpResult ? (
-          <>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
-              {[
-                ['Impots cumules', fmt.euro(lmnpResult.impotTotal), '#b91c1c'],
-                ['Plus-value brute', fmt.euro(lmnpResult.pv.pvBrute), '#111827'],
-                ['Impot PV', fmt.euro(lmnpResult.pv.impotPV), '#b91c1c'],
-                ['Produit net revente', fmt.euro(lmnpResult.produitNet), '#15803d'],
-              ].map(([l, v, c]) => (
-                <div key={l} style={{ background: '#f9fafb', borderRadius: 7, padding: '9px 10px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: c }}>{v}</div>
-                  <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{l}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ background: '#f0fdf4', borderRadius: 7, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#15803d' }}>
-              Abattement IR : {lmnpResult.pv.abatIR}% · Abattement PS : {Math.round(lmnpResult.pv.abatPS || 0)}% apres {lmnp.horizon} ans · Prix de revente dans {lmnp.horizon} ans : {fmt.euro(lmnpResult.prixVente)}
-            </div>
+{lmnpResult ? (
+  <>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+      {[
+        ['Impots sur revenus locatifs', fmt.euro(lmnpResult.impotRevenusCumules), '#b91c1c'],
+        ['Plus-value brute', fmt.euro(lmnpResult.pv.pvBrute), '#111827'],
+        ['Impot sur plus-value', fmt.euro(lmnpResult.pv.impotPV), '#b91c1c'],
+      ].map(([l, v, c]) => (
+        <div key={l} style={{ background: '#f9fafb', borderRadius: 7, padding: '9px 10px', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: c }}>{v}</div>
+          <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{l}</div>
+        </div>
+      ))}
+    </div>
+
+    <div style={{ background: '#f9fafb', borderRadius: 7, padding: '11px 14px', marginBottom: 10, fontSize: 12 }}>
+      <div style={{ fontWeight: 600, color: '#374151', marginBottom: 8 }}>Detail de la revente dans {lmnp.horizon} ans</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+        {[
+          ['Prix de vente', fmt.euro(lmnpResult.prixVente) + (bien.surface ? ' · ' + Math.round(lmnpResult.prixVente / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : '')],
+          ['Capital restant du', '-' + fmt.euro(lmnpResult.capitalRestant)],
+          ['Frais agent (' + effSettings.fraisVente + '%)', '-' + fmt.euro(lmnpResult.fraisVente)],
+          ['= Produit net avant impot PV', fmt.euro(lmnpResult.produitNetAvantImpotPV)],
+          ['Impot sur plus-value', '-' + fmt.euro(lmnpResult.pv.impotPV)],
+          ['= Produit net apres impot PV', fmt.euro(lmnpResult.produitNetApresImpotPV)],
+        ].map(([k, v]) => (
+          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #e5e7eb' }}>
+            <span style={{ color: '#6b7280' }}>{k}</span>
+            <span style={{ fontFamily: 'monospace', fontWeight: k.startsWith('=') ? 700 : 400, color: k.startsWith('=') ? '#15803d' : '#111827' }}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+
+    <div style={{ background: '#f0fdf4', borderRadius: 7, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#15803d' }}>
+      Abattement IR : {lmnpResult.pv.abatIR}% · Abattement PS : {Math.round(lmnpResult.pv.abatPS || 0)}% apres {lmnp.horizon} ans de detention
+    </div>
             <details>
               <summary style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: '6px 0', color: '#374151' }}>
                 Detail annuel LMNP ({lmnp.horizon} ans)
