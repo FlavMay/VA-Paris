@@ -15,15 +15,28 @@ export default function BienDetail() {
   const { settings } = useApp()
   const [bien, setBien] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [editLoyer, setEditLoyer] = useState(false)
-  const [loyerVal, setLoyerVal] = useState('')
   const [estimating, setEstimating] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const [hyp, setHyp] = useState({
+    loyer_mensuel: null, travaux_manuel: null, prix_fai: null,
+    premiumRevente: 0, creditPct: null, tauxCredit: null,
+    dureeCredit: null, appreciation: null, vacanceMois: null, chargesPct: null,
+  })
+  const updHyp = patch => setHyp(prev => ({ ...prev, ...patch }))
 
   useEffect(() => {
     supabase.from('properties').select('*').eq('id', id).single()
       .then(({ data }) => {
         setBien(data)
-        setLoyerVal(data?.loyer_mensuel || '')
+        if (data) setHyp({
+          loyer_mensuel:  data.loyer_mensuel  || null,
+          travaux_manuel: data.travaux_manuel || null,
+          prix_fai:       null,
+          premiumRevente: data.premiumRevente || 0,
+          creditPct:      null, tauxCredit: null, dureeCredit: null,
+          appreciation:   null, vacanceMois: null, chargesPct: null,
+        })
         setLoading(false)
       })
   }, [id])
@@ -34,11 +47,15 @@ export default function BienDetail() {
     nav('/dashboard')
   }
 
-  const saveLoyer = async () => {
-    const val = parseFloat(loyerVal) || null
-    await supabase.from('properties').update({ loyer_mensuel: val }).eq('id', id)
-    setBien(b => ({ ...b, loyer_mensuel: val }))
-    setEditLoyer(false)
+  const saveHyp = async () => {
+    await supabase.from('properties').update({
+      loyer_mensuel:  hyp.loyer_mensuel,
+      travaux_manuel: hyp.travaux_manuel,
+      premiumRevente: hyp.premiumRevente,
+    }).eq('id', id)
+    setBien(b => ({ ...b, loyer_mensuel: hyp.loyer_mensuel, travaux_manuel: hyp.travaux_manuel, premiumRevente: hyp.premiumRevente }))
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
   }
 
   async function estimateLoyer() {
@@ -46,46 +63,67 @@ export default function BienDetail() {
     setEstimating(true)
     try {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 300,
-          messages: [{
-            role: 'user',
-            content: `Estime le loyer mensuel nu (hors charges) pour cet appartement parisien. Bien: ${bien.surface || '?'}m2, ${bien.pieces || '?'} pieces, ${bien.arrondissement || bien.code_postal || 'Paris'} arr., etat: ${ETAT_LABELS[bien.etat] || bien.etat || 'inconnu'}. Adresse: ${bien.adresse || bien.rue || 'Paris'}. Reponds UNIQUEMENT avec un JSON: {"loyer": 1800, "fourchette": "1700-1900", "explication": "1 phrase"}`
-          }]
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 200,
+          messages: [{ role: 'user', content: `Estime le loyer mensuel nu (hors charges) pour: ${bien.surface || '?'}m2, ${bien.pieces || '?'} pieces, ${bien.arrondissement || 'Paris'} arr., etat: ${bien.etat || 'bon'}, adresse: ${bien.adresse || bien.rue || 'Paris'}. UNIQUEMENT JSON: {"loyer":1800,"fourchette":"1700-1900","explication":"1 phrase"}` }]
         })
       })
       const data = await resp.json()
       const txt = data.content?.find(c => c.type === 'text')?.text || '{}'
       const p = JSON.parse(txt.replace(/```[a-z]*|```/g, '').trim())
       if (p.loyer) {
-        setLoyerVal(p.loyer)
-        setEditLoyer(true)
-        alert(`Estimation: ${p.loyer} EUR/mois (fourchette ${p.fourchette})\n${p.explication}`)
+        updHyp({ loyer_mensuel: p.loyer })
+        alert(`Estimation: ${p.loyer} EUR/mois (${p.fourchette})\n${p.explication}`)
       }
-    } catch (e) {
-      alert('Erreur estimation loyer')
-    }
+    } catch(e) { alert('Erreur estimation') }
     setEstimating(false)
   }
 
   if (loading) return <div style={{ textAlign: 'center', padding: 48 }}><span className="spinner" /></div>
   if (!bien) return <div>Bien introuvable. <button className="btn-ghost" onClick={() => nav('/dashboard')}>Retour</button></div>
 
-  const m = calcMetrics(bien, settings)
-  const sc = m ? calcScore(bien, m, settings) : 0
+  const effSettings = {
+    ...settings,
+    ...(hyp.creditPct    != null ? { creditPct: hyp.creditPct }       : {}),
+    ...(hyp.tauxCredit   != null ? { tauxCredit: hyp.tauxCredit }     : {}),
+    ...(hyp.dureeCredit  != null ? { dureeCredit: hyp.dureeCredit }   : {}),
+    ...(hyp.appreciation != null ? { appreciation: hyp.appreciation } : {}),
+    ...(hyp.vacanceMois  != null ? { vacanceMois: hyp.vacanceMois }   : {}),
+    ...(hyp.chargesPct   != null ? { chargesPct: hyp.chargesPct }     : {}),
+  }
+
+  const prixEff = hyp.prix_fai || bien.prix
+  const bienEff = {
+    ...bien,
+    prix:           prixEff,
+    loyer_mensuel:  hyp.loyer_mensuel,
+    loyerMensuel:   hyp.loyer_mensuel,
+    travaux_manuel: hyp.travaux_manuel,
+    travauxManuel:  hyp.travaux_manuel,
+    premiumRevente: hyp.premiumRevente || 0,
+  }
+
+  const m = calcMetrics(bienEff, effSettings)
+  const sc = m ? calcScore(bienEff, m, effSettings) : 0
   const cs = bien.comp_stats
-  const pm2A = bien.pm2_ask
+  const pm2A = prixEff && bien.surface ? Math.round(prixEff / bien.surface) : bien.pm2_ask
   const hist = cs ? buildHistogram(cs.pm2s, pm2A) : []
   const disc = cs && pm2A ? Math.round((1 - pm2A / cs.median) * 100) : null
   const arvQ3 = cs && bien.surface ? cs.q3 * bien.surface : null
   const spread = arvQ3 && m ? arvQ3 - m.totalInvesti : null
   const roc = spread && m ? spread / m.totalInvesti * 100 : null
   const pct = Math.min(100, Math.max(0, (m?.lirr || 0) / 20 * 100))
-  const barC = m?.lirr >= settings.lirrCible ? '#15803d' : m?.lirr >= 8 ? '#b45309' : '#b91c1c'
-  const loyer = bien.loyer_mensuel
+  const barC = m?.lirr >= effSettings.lirrCible ? '#15803d' : m?.lirr >= 8 ? '#b45309' : '#b91c1c'
+  const loyer = hyp.loyer_mensuel
+
+  const inp = (label, val, onChange, opts = {}) => (
+    <div>
+      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>{label}</div>
+      <input type="number" value={val ?? ''} onChange={e => onChange(+e.target.value || null)}
+        step={opts.step || 1} placeholder={opts.placeholder || ''}
+        style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+    </div>
+  )
 
   return (
     <div style={{ maxWidth: 820, margin: '0 auto' }}>
@@ -97,55 +135,17 @@ export default function BienDetail() {
         <button className="btn-danger btn-sm" onClick={deleteBien}>Supprimer</button>
       </div>
 
-      {!loyer && (
-        <div className="card" style={{ padding: 16, marginBottom: 14, background: '#fffbeb', border: '1px solid #fcd34d' }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: '#b45309', marginBottom: 10 }}>
-            Loyer mensuel non renseigne
-          </p>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input type="number" value={loyerVal} onChange={e => setLoyerVal(e.target.value)} placeholder="Ex: 1800"
-              style={{ width: 140, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-            <button className="btn-primary btn-sm" onClick={saveLoyer} disabled={!loyerVal}>Enregistrer</button>
-            <button className="btn-ghost btn-sm" onClick={estimateLoyer} disabled={estimating}>
-              {estimating ? 'Estimation...' : 'Estimer avec IA'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {loyer && (
-        <div className="card" style={{ padding: '10px 16px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>
-            Loyer mensuel : <strong style={{ color: '#111827' }}>{loyer.toLocaleString('fr-FR')} EUR/mois</strong>
-          </span>
-          {editLoyer ? (
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <input type="number" value={loyerVal} onChange={e => setLoyerVal(e.target.value)}
-                style={{ width: 120, padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
-              <button className="btn-primary btn-sm" onClick={saveLoyer}>OK</button>
-              <button className="btn-ghost btn-sm" onClick={() => setEditLoyer(false)}>Annuler</button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-ghost btn-sm" onClick={() => setEditLoyer(true)}>Modifier</button>
-              <button className="btn-ghost btn-sm" onClick={estimateLoyer} disabled={estimating}>
-                {estimating ? '...' : 'Re-estimer IA'}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
+      {/* LIRR */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>LIRR · {settings.horizon} ans · {settings.creditPct}% credit @ {settings.tauxCredit}%</span>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>LIRR · {effSettings.horizon} ans · {effSettings.creditPct}% credit @ {effSettings.tauxCredit}%</span>
           <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 26, color: loyer ? barC : '#9ca3af' }}>{fmt.pct(m?.lirr)}</span>
         </div>
         <div style={{ height: 10, background: '#e5e7eb', borderRadius: 5, overflow: 'hidden', marginBottom: 4 }}>
           <div style={{ width: pct + '%', height: '100%', background: barC, borderRadius: 5, transition: 'width .5s' }} />
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af' }}>
-          <span>0%</span><span style={{ color: '#b45309' }}>{settings.lirrCible}% cible</span><span>20%+</span>
+          <span>0%</span><span style={{ color: '#b45309' }}>{effSettings.lirrCible}% cible</span><span>20%+</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 12 }}>
           {[
@@ -161,6 +161,59 @@ export default function BienDetail() {
         </div>
       </div>
 
+      {/* Hypotheses */}
+      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Hypotheses de calcul — modifiez et observez le LIRR en temps reel</h2>
+          <button className="btn-primary btn-sm" onClick={saveHyp}>{saved ? 'Sauvegarde !' : 'Sauvegarder'}</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Loyer mensuel (EUR)</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <input type="number" value={loyer || ''} onChange={e => updHyp({ loyer_mensuel: +e.target.value || null })}
+                placeholder="Ex: 1800" style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+              <button className="btn-ghost btn-sm" onClick={estimateLoyer} disabled={estimating} style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+                {estimating ? '...' : 'IA'}
+              </button>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>
+              Prix FAI (EUR){prixEff && bien.surface ? ' · ' + Math.round(prixEff / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''}
+            </div>
+            <input type="number" value={hyp.prix_fai || bien.prix || ''} onChange={e => updHyp({ prix_fai: +e.target.value || null })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          {inp('Travaux (EUR) — vide = auto', hyp.travaux_manuel, v => updHyp({ travaux_manuel: v }), { placeholder: 'Calcul auto' })}
+          {inp('Apport (%)', hyp.creditPct ?? effSettings.creditPct, v => updHyp({ creditPct: v }))}
+          {inp('Taux credit (%)', hyp.tauxCredit ?? effSettings.tauxCredit, v => updHyp({ tauxCredit: v }), { step: 0.1 })}
+          {inp('Duree credit (ans)', hyp.dureeCredit ?? effSettings.dureeCredit, v => updHyp({ dureeCredit: v }))}
+          {inp('Vacance locative (mois/an)', hyp.vacanceMois ?? effSettings.vacanceMois, v => updHyp({ vacanceMois: v }), { step: 0.5 })}
+          {inp('Charges (% des loyers)', hyp.chargesPct ?? effSettings.chargesPct, v => updHyp({ chargesPct: v }))}
+          {inp('Appreciation annuelle (%)', hyp.appreciation ?? effSettings.appreciation, v => updHyp({ appreciation: v }), { step: 0.1 })}
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>
+              Premium revente (%) — etage, vis-a-vis...
+            </div>
+            <input type="number" step="0.5" value={hyp.premiumRevente || 0} onChange={e => updHyp({ premiumRevente: +e.target.value || 0 })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>
+              Prix revente manuel (EUR){m?.revente && bien.surface ? ' · ' + Math.round(m.revente / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''}
+            </div>
+            <input type="number" value={hyp.prixRevente || ''} onChange={e => updHyp({ prixRevente: +e.target.value || null })}
+              placeholder={'Auto: ' + (m?.revente ? Math.round(m.revente).toLocaleString('fr-FR') : '—')}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+        </div>
+        <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
+          Toutes les modifications recalculent le LIRR instantanement. Cliquez Sauvegarder pour conserver loyer, travaux et premium.
+        </p>
+      </div>
+
+      {/* DVF */}
       {cs && (
         <div className="card" style={{ padding: 18, marginBottom: 14 }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Analyse DVF · {cs.n} comparables</h2>
@@ -195,11 +248,11 @@ export default function BienDetail() {
           )}
 
           {cs.comps && cs.comps.length > 0 && (
-            <details style={{ marginBottom: 14 }}>
-              <summary style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: '6px 0', color: '#374151' }}>
-                Voir les {cs.comps.length} comparables utilises
-              </summary>
-              <div style={{ marginTop: 8, maxHeight: 260, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 6 }}>
+                Comparables utilises ({cs.comps.length})
+              </div>
+              <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6 }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
                     <tr>
@@ -222,7 +275,7 @@ export default function BienDetail() {
                   </tbody>
                 </table>
               </div>
-            </details>
+            </div>
           )}
 
           <div style={{ background: '#eff6ff', borderRadius: 7, padding: '11px 14px', border: '1px solid #bfdbfe' }}>
@@ -246,73 +299,42 @@ export default function BienDetail() {
         </div>
       )}
 
-      {!cs && (
-        <div className="alert alert-warn" style={{ marginBottom: 14 }}>Aucune analyse DVF pour ce bien.</div>
-      )}
+      {!cs && <div className="alert alert-warn" style={{ marginBottom: 14 }}>Aucune analyse DVF pour ce bien.</div>}
 
-      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: '#374151' }}>Hypotheses de calcul</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-          {[
-            ['Loyer mensuel (EUR)', 'loyer_mensuel', bien.loyer_mensuel || ''],
-            ['Travaux manuel (EUR)', 'travaux_manuel', bien.travaux_manuel || ''],
-            ['Premium revente (%)', 'premiumRevente', bien.premiumRevente || 0],
-          ].map(([label, key, val]) => (
-            <div key={key}>
-              <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>{label}</div>
-              <input
-                type="number"
-                defaultValue={val}
-                style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
-                onBlur={async e => {
-                  const v = e.target.value === '' ? null : parseFloat(e.target.value)
-                  await supabase.from('properties').update({ [key]: v }).eq('id', id)
-                  setBien(b => ({ ...b, [key]: v }))
-                }}
-              />
-            </div>
-          ))}
-        </div>
-        <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-          Premium revente : ajustez en % pour un etage eleve, absence de vis-a-vis, etc. Ex: +5%. Le prix de revente est base sur ARV Q3 des comparables x (1 + premium) x (1 + appreciation)^horizon.
-        </p>
-      </div>
-
+      {/* Finance */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
         {[
           ['ACQUISITION', [
-            ['Prix FAI', fmt.euro(bien.prix)],
+            ['Prix FAI', fmt.euro(prixEff), '', prixEff && bien.surface ? Math.round(prixEff/bien.surface).toLocaleString('fr-FR')+' EUR/m2' : ''],
             ['Frais notaire (8%)', fmt.euro(m?.fraisNotaire)],
             ['Travaux', fmt.euro(m?.travaux)],
-            ['Total investi', fmt.euro(m?.totalInvesti), m?.totalInvesti <= settings.budgetMax ? '#15803d' : '#b91c1c']
+            ['Total investi', fmt.euro(m?.totalInvesti), m?.totalInvesti <= effSettings.budgetMax ? '#15803d' : '#b91c1c']
           ]],
           ['FINANCEMENT', [
-            ['Apport ' + settings.creditPct + '%', fmt.euro(m?.apport)],
+            ['Apport ' + effSettings.creditPct + '%', fmt.euro(m?.apport)],
             ['Credit', fmt.euro(m?.credit)],
             ['Mensualite', fmt.euro(m?.mensualite, 0) + '/mois'],
-            ['Taux & duree', settings.tauxCredit + '% · ' + settings.dureeCredit + ' ans']
+            ['Taux & duree', effSettings.tauxCredit + '% · ' + effSettings.dureeCredit + ' ans']
           ]],
           ['CASH FLOWS ANNUELS', [
             ['Loyer brut', fmt.euro(loyer ? loyer * 12 : null)],
-            ['Vacance + charges', loyer ? '-' + fmt.euro((loyer * settings.vacanceMois) + (m?.charges || 0), 0) : '-'],
+            ['Vacance + charges', loyer ? '-' + fmt.euro((loyer * effSettings.vacanceMois) + (m?.charges || 0), 0) : '-'],
             ['Service dette', m ? '-' + fmt.euro(m.mensualite * 12, 0) : '-'],
             ['CF net/an', fmt.euro(m?.cashflowAnnuel, 0), m?.cashflowAnnuel >= 0 ? '#15803d' : '#b91c1c']
           ]],
-          ['SORTIE ' + settings.horizon + ' ANS', [
-            ['Base revente', cs?.q3 ? 'ARV Q3 comparables' : 'Prix achat'],
-            ['Premium revente', bien.premiumRevente ? '+' + bien.premiumRevente + '%' : '0%'],
-            ['Appreciation ' + settings.appreciation + '%/an', ''],
-            ['Prix revente estime', fmt.euro(m?.revente)],
+          ['SORTIE ' + effSettings.horizon + ' ANS', [
+            ['Base revente', cs?.q3 ? 'ARV Q3 + premium' : 'Prix achat'],
+            ['Prix revente estime', fmt.euro(hyp.prixRevente || m?.revente), '', hyp.prixRevente || (m?.revente && bien.surface) ? Math.round((hyp.prixRevente || m?.revente) / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''],
             ['Capital restant', m ? '-' + fmt.euro(m.capitalRestant, 0) : '-'],
-            ['Frais vente ' + settings.fraisVente + '%', m ? '-' + fmt.euro(m.revente * settings.fraisVente / 100, 0) : '-'],
+            ['Frais vente ' + effSettings.fraisVente + '%', m ? '-' + fmt.euro((hyp.prixRevente || m?.revente) * effSettings.fraisVente / 100, 0) : '-'],
             ['Produit net revente', fmt.euro(m?.produitNetRevente), '#15803d']
           ]]
         ].map(([title, rows]) => (
           <div className="card" key={title} style={{ padding: '13px 15px' }}>
             <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: '#9ca3af', marginBottom: 8 }}>{title}</div>
-            {rows.map(([k, v, c]) => k && (
+            {rows.map(([k, v, c, sub]) => k && (
               <div key={k} className="divider-row">
-                <span className="dk">{k}</span>
+                <span className="dk">{k}{sub ? <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>{sub}</span> : null}</span>
                 <span className="dv mono" style={{ color: c || '#111827' }}>{v}</span>
               </div>
             ))}
@@ -320,16 +342,8 @@ export default function BienDetail() {
         ))}
       </div>
 
-      {bien.url && (
-        <div style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>
-          <a href={bien.url} target="_blank" rel="noopener" style={{ color: '#6b7280' }}>{bien.url}</a>
-        </div>
-      )}
-      {bien.notes && (
-        <div style={{ padding: '10px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 13, color: '#374151', marginBottom: 12 }}>
-          {bien.notes}
-        </div>
-      )}
+      {bien.url && <div style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 12, marginBottom: 12 }}><a href={bien.url} target="_blank" rel="noopener" style={{ color: '#6b7280' }}>{bien.url}</a></div>}
+      {bien.notes && <div style={{ padding: '10px 12px', background: '#f9fafb', borderRadius: 6, fontSize: 13, color: '#374151', marginBottom: 12 }}>{bien.notes}</div>}
     </div>
   )
 }
