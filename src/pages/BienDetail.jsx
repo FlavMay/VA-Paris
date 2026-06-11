@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useApp } from '../App'
-import { calcMetrics, calcScore, calcCapitalRestant, fmt, ETAT_LABELS } from '../lib/finance'
+import { calcMetrics, calcScore, calcCapitalRestant, fmt, ETAT_LABELS, calcLIRR_LMNP, DEFAULT_LMNP } from '../lib/finance'
 import { buildHistogram } from '../lib/comps'
 import { BarChart, Bar, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
@@ -18,6 +18,8 @@ export default function BienDetail() {
   const [estimating, setEstimating] = useState(false)
   const [saved, setSaved] = useState(false)
   const [selectedComps, setSelectedComps] = useState(null)
+  const [lmnp, setLmnp] = useState(DEFAULT_LMNP)
+  const updLmnp = patch => setLmnp(prev => ({ ...prev, ...patch }))
 
   const [hyp, setHyp] = useState({
     loyer_mensuel: null, travaux_manuel: null, prix_fai: null,
@@ -40,7 +42,6 @@ export default function BienDetail() {
             appreciation: null, vacanceMois: null, chargesPct: null,
             prixReventeAujourdhui: null,
           })
-          // Initialiser tous les comparables comme selectionnes
           if (data.comp_stats?.comps) {
             setSelectedComps(data.comp_stats.comps.map((_, i) => i))
           }
@@ -102,13 +103,10 @@ export default function BienDetail() {
   }
 
   const prixEff = hyp.prix_fai || bien.prix
-
-  // Comparables actifs = selectionnes par l utilisateur
   const allComps = bien.comp_stats?.comps || []
   const activeCompIndices = selectedComps || allComps.map((_, i) => i)
   const activeComps = allComps.filter((_, i) => activeCompIndices.includes(i))
 
-  // Recalculer les stats sur les comparables selectionnes
   const pm2sActive = activeComps.map(c => c.prix_m2).filter(Boolean).sort((a, b) => a - b)
   const activeStats = pm2sActive.length ? (() => {
     const n = pm2sActive.length
@@ -119,9 +117,6 @@ export default function BienDetail() {
   const cs = activeStats || bien.comp_stats
   const pm2A = prixEff && bien.surface ? Math.round(prixEff / bien.surface) : bien.pm2_ask
 
-  // Prix de revente :
-  // Si prix_revente_aujourd_hui saisi → ce prix * (1 + appreciation)^horizon
-  // Sinon → ARV Q3 * (1 + premium) * (1 + appreciation)^horizon
   const prixRevEstAujourdhui = hyp.prixReventeAujourdhui
     || (cs?.q3 && bien.surface ? cs.q3 * bien.surface * (1 + (hyp.premiumRevente || 0) / 100) : null)
     || prixEff
@@ -151,6 +146,11 @@ export default function BienDetail() {
   const barC = m?.lirr >= effSettings.lirrCible ? '#15803d' : m?.lirr >= 8 ? '#b45309' : '#b91c1c'
   const loyer = hyp.loyer_mensuel
 
+  // LMNP utilise sa propre duree de detention (lmnp.horizon)
+  const reventeForLmnp = prixRevEstAujourdhui * (1 + effSettings.appreciation / 100) ** lmnp.horizon
+  const bienEffLmnp = { ...bienEff, _reventeOverride: reventeForLmnp }
+  const lmnpResult = calcLIRR_LMNP(bienEffLmnp, { ...effSettings, horizon: lmnp.horizon }, lmnp, prixRevEstAujourdhui)
+
   const inp = (label, val, onChange, opts = {}) => (
     <div>
       <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>{label}</div>
@@ -163,6 +163,7 @@ export default function BienDetail() {
   return (
     <div style={{ maxWidth: 820, margin: '0 auto' }}>
 
+      {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
         <button className="btn-ghost btn-sm" onClick={() => nav('/dashboard')}>Retour</button>
         <h1 style={{ flex: 1, fontSize: 18, fontWeight: 700 }}>{bien.titre || 'Annonce'}</h1>
@@ -170,10 +171,10 @@ export default function BienDetail() {
         <button className="btn-danger btn-sm" onClick={deleteBien}>Supprimer</button>
       </div>
 
-      {/* LIRR */}
+      {/* LIRR brut */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-          <span style={{ fontSize: 13, color: '#6b7280' }}>LIRR · {effSettings.horizon} ans · LTV {effSettings.creditPct}% @ {effSettings.tauxCredit}%</span>
+          <span style={{ fontSize: 13, color: '#6b7280' }}>LIRR brut · {effSettings.horizon} ans · LTV {effSettings.creditPct}% @ {effSettings.tauxCredit}%</span>
           <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 26, color: loyer ? barC : '#9ca3af' }}>{fmt.pct(m?.lirr)}</span>
         </div>
         <div style={{ height: 10, background: '#e5e7eb', borderRadius: 5, overflow: 'hidden', marginBottom: 4 }}>
@@ -199,7 +200,7 @@ export default function BienDetail() {
       {/* Hypotheses */}
       <div className="card" style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Hypotheses — recalcul LIRR en temps reel</h2>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151' }}>Hypotheses — recalcul en temps reel</h2>
           <button className="btn-primary btn-sm" onClick={saveHyp}>{saved ? 'Sauvegarde !' : 'Sauvegarder'}</button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
@@ -241,14 +242,141 @@ export default function BienDetail() {
               placeholder={prixRevEstAujourdhui ? Math.round(prixRevEstAujourdhui).toLocaleString('fr-FR') + ' (auto)' : 'Auto'}
               style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
             <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>
-              Revente dans {effSettings.horizon} ans: {fmt.euro(revente)}
-              {bien.surface ? ' · ' + Math.round(revente / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''}
+              Dans {effSettings.horizon} ans : {fmt.euro(revente)}{bien.surface ? ' · ' + Math.round(revente / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : ''}
             </div>
           </div>
         </div>
         <p style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-          Prix revente aujourd hui = valeur estimee au marche actuel. L appreciation annuelle s applique ensuite sur cette base sur la duree de detention.
+          Prix revente aujourd hui = valeur marche actuelle. L appreciation annuelle s applique ensuite sur cette base.
         </p>
+      </div>
+
+      {/* LMNP */}
+      <div className="card" style={{ padding: 18, marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: '#374151', flex: 1 }}>
+            LMNP Reel simplifie — LIRR net d impots
+          </h2>
+          <div style={{ background: lmnpResult?.lirrNet != null ? (lmnpResult.lirrNet >= effSettings.lirrCible ? '#f0fdf4' : '#fef2f2') : '#f9fafb', borderRadius: 8, padding: '6px 16px', textAlign: 'center', minWidth: 90 }}>
+            <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 20, color: lmnpResult?.lirrNet != null ? (lmnpResult.lirrNet >= effSettings.lirrCible ? '#15803d' : '#b91c1c') : '#9ca3af' }}>
+              {fmt.pct(lmnpResult?.lirrNet)}
+            </div>
+            <div style={{ fontSize: 10, color: '#9ca3af' }}>LIRR net</div>
+          </div>
+          <div style={{ background: '#f9fafb', borderRadius: 8, padding: '6px 16px', textAlign: 'center', minWidth: 90 }}>
+            <div style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 15, color: '#6b7280' }}>{fmt.pct(m?.lirr)}</div>
+            <div style={{ fontSize: 10, color: '#9ca3af' }}>LIRR brut</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>TMI (%)</div>
+            <select value={lmnp.tmi} onChange={e => updLmnp({ tmi: +e.target.value })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}>
+              {[0, 11, 30, 41, 45].map(t => <option key={t} value={t}>{t}%</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Duree detention (ans)</div>
+            <input type="number" value={lmnp.horizon} min={1} max={30}
+              onChange={e => updLmnp({ horizon: +e.target.value || 10 })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Mobilier (EUR)</div>
+            <input type="number" value={lmnp.mobilier}
+              onChange={e => updLmnp({ mobilier: +e.target.value || 0 })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Taxe fonciere (EUR/an)</div>
+            <input type="number" value={lmnp.taxeFonciere}
+              onChange={e => updLmnp({ taxeFonciere: +e.target.value || 0 })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Amort. bien (ans)</div>
+            <input type="number" value={lmnp.dureeAmortBien}
+              onChange={e => updLmnp({ dureeAmortBien: +e.target.value || 30 })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Amort. travaux (ans)</div>
+            <input type="number" value={lmnp.dureeAmortTrav}
+              onChange={e => updLmnp({ dureeAmortTrav: +e.target.value || 10 })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Frais gestion (%)</div>
+            <input type="number" value={lmnp.fraisGestion}
+              onChange={e => updLmnp({ fraisGestion: +e.target.value || 8 })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 3 }}>Assurance (EUR/an)</div>
+            <input type="number" value={lmnp.assurance}
+              onChange={e => updLmnp({ assurance: +e.target.value || 0 })}
+              style={{ width: '100%', padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+          </div>
+        </div>
+
+        {lmnpResult && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 10 }}>
+              {[
+                ['Impots cumules', fmt.euro(lmnpResult.impotTotal), '#b91c1c'],
+                ['Plus-value brute', fmt.euro(lmnpResult.pv.pvBrute), '#111827'],
+                ['Impot PV', fmt.euro(lmnpResult.pv.impotPV), '#b91c1c'],
+                ['Produit net revente', fmt.euro(lmnpResult.produitNet), '#15803d'],
+              ].map(([l, v, c]) => (
+                <div key={l} style={{ background: '#f9fafb', borderRadius: 7, padding: '9px 10px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: c }}>{v}</div>
+                  <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{l}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: '#f0fdf4', borderRadius: 7, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#15803d' }}>
+              Abattement IR : {lmnpResult.pv.abatIR}% · Abattement PS : {Math.round(lmnpResult.pv.abatPS || 0)}% apres {lmnp.horizon} ans de detention · Prix de revente dans {lmnp.horizon} ans : {fmt.euro(lmnpResult.prixVente)}
+            </div>
+            <details>
+              <summary style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', padding: '6px 0', color: '#374151' }}>
+                Detail annuel LMNP ({lmnp.horizon} ans)
+              </summary>
+              <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 6, marginTop: 8 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <thead style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
+                    <tr>
+                      {['An', 'Loyers', 'Charges', 'Amort.', 'Res. BIC', 'Report', 'Impot', 'CF net', 'Impot cum.'].map(h => (
+                        <th key={h} style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 500, color: '#6b7280', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lmnpResult.annees.map((a, i) => (
+                      <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f9fafb' }}>
+                        {[a.yr, a.lAn, a.chargesDeductibles, a.totalAmort, a.resultBIC, a.reportDeficit, a.impot, a.cfNet, a.impotCumul].map((v, j) => (
+                          <td key={j} style={{
+                            padding: '5px 8px', textAlign: 'right', fontFamily: 'monospace', fontSize: 11,
+                            color: j === 6 ? (v > 0 ? '#b91c1c' : '#15803d') : j === 7 ? (v >= 0 ? '#15803d' : '#b91c1c') : '#111827'
+                          }}>
+                            {j === 0 ? v : (v || 0).toLocaleString('fr-FR')}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          </>
+        )}
+
+        {!lmnpResult && (
+          <div style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', padding: 16 }}>
+            Renseignez le loyer mensuel pour activer l analyse LMNP
+          </div>
+        )}
       </div>
 
       {/* DVF */}
@@ -287,7 +415,6 @@ export default function BienDetail() {
             </div>
           )}
 
-          {/* Table comparables avec checkboxes */}
           {allComps.length > 0 && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 6 }}>
@@ -376,7 +503,7 @@ export default function BienDetail() {
           ]],
           ['SORTIE ' + effSettings.horizon + ' ANS', [
             ['Base revente (auj.)', fmt.euro(prixRevEstAujourdhui) + (bien.surface ? ' · ' + Math.round(prixRevEstAujourdhui / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : '')],
-            ['Appreciation ' + effSettings.appreciation + '%/an x ' + effSettings.horizon + 'ans', ''],
+            ['Appreciation ' + effSettings.appreciation + '%/an x ' + effSettings.horizon + ' ans', ''],
             ['Prix revente estime', fmt.euro(revente) + (bien.surface ? ' · ' + Math.round(revente / bien.surface).toLocaleString('fr-FR') + ' EUR/m2' : '')],
             ['Capital restant', m ? '-' + fmt.euro(m.capitalRestant, 0) : '-'],
             ['Frais vente ' + effSettings.fraisVente + '%', m ? '-' + fmt.euro(revente * effSettings.fraisVente / 100, 0) : '-'],
